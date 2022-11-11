@@ -74,6 +74,7 @@ def main():
             # Start data acquisition.
             #-------------------------------------------------------------------------------------
             device.StartAcquisition(TestsignaleEnabled)
+            
             print("Data acquisition started.")
 
             # Calculate number of get data calls.

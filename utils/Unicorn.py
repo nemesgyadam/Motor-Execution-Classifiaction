@@ -1,6 +1,6 @@
 import numpy as np
 import UnicornPy
-
+import time
 from utils.time import timeit
 
 #unicorn_channels = "FP1, FFC1, FFC2, FCZ, CPZ, CPP1, CPP2, PZ, AccelX, AccelY, AccelZ, GyroX, GyroY, GyroZ, Battery, Sample"
@@ -12,8 +12,8 @@ EEG_channels = list(
 
 
 class UnicornWrapper:
-    def __init__(self, frame_length=1):
-        self.frame_length = frame_length  # number of samples in between 1 and 25 acquired per acquisition cycle.
+    def __init__(self):
+        self.frame_length = 25  # number of samples in between 1 and 25 acquired per acquisition cycle.
 
         # Get available device serials.
         self.deviceList = UnicornPy.GetAvailableDevices(True)
@@ -57,15 +57,25 @@ class UnicornWrapper:
 
     #@timeit()
     def get_data(self, duration=10):
-        data_buffer = np.zeros((len(EEG_channels), duration * UnicornPy.SamplingRate))
         try:
+            self.device.StopAcquisition()
+        except UnicornPy.DeviceException as e:
+            ...
 
-            n_data_points = int(duration * UnicornPy.SamplingRate)
-
+        n_data_points = int(duration * UnicornPy.SamplingRate)
+        data_buffer = np.zeros((len(EEG_channels), n_data_points))
+        try:
             receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
             receiveBuffer = bytearray(receiveBufferBufferLength)
 
             self.device.StartAcquisition(self.testsignale_enabled)
+
+            # Dummy run to get the device ready
+            for i in range(40):
+                self.device.GetData(
+                        self.frame_length, receiveBuffer, receiveBufferBufferLength
+                    )
+
             for i in range(int(n_data_points / self.frame_length)):
                 self.device.GetData(
                     self.frame_length, receiveBuffer, receiveBufferBufferLength
@@ -85,8 +95,10 @@ class UnicornWrapper:
 
         except UnicornPy.DeviceException as e:
             print(e)
+            return -1
         except Exception as e:
             print("An unknown error occured. %s" % e)
+            return -2
         return data_buffer
 
     def stop(self):

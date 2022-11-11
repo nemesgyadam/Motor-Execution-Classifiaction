@@ -2,7 +2,6 @@ import os
 import time
 import argparse
 import numpy as np
-from tqdm import tqdm
 from pathlib import Path
 
 from utils.Unicorn import UnicornWrapper
@@ -15,7 +14,7 @@ data_root = "data/"
 def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("Subject", help="Name of the Subject")
-    parser.add_argument("--n_samples", default=1, help="Number of samples to record")
+    parser.add_argument("--n_samples", default=1, help="Number of samples per class to record")
     return parser.parse_args(args)
 
 
@@ -37,7 +36,8 @@ def collect_data(
     results = [[] for i in range(len(classes))]
     tasks = generate_order(len(classes), n_samples_per_class)
 
-    time.sleep(2)
+    print("Franky says RELAX!")
+    time.sleep(10)
 
     for i, task in enumerate(tasks):
         clear()
@@ -46,8 +46,20 @@ def collect_data(
         time.sleep(1)
         print(config.commands[task])
 
-        data = Unicorn.get_data(sample_length)
-        results[task].append(data)
+        ok = False
+        patient = 10
+        tries = 0
+        while not ok:
+            data = Unicorn.get_data(sample_length)
+            if type(data) == np.ndarray:
+                ok = True
+                tries = 0
+                results[task].append(data)
+            tries += 1
+            if tries > patient:
+                print("Patient is not responding!")
+                quit()
+    
     return results, classes
 
 
@@ -68,14 +80,14 @@ def main(args=None):
     print()
     print(f"Subject [{args.Subject}] {session} started!")
     print()
-    Unicorn = UnicornWrapper(frame_length=25)
+    Unicorn = UnicornWrapper()
 
-    results, classes = collect_data(Unicorn, int(config.sample_length))
+    results, classes = collect_data(Unicorn, int(config.sample_length), int(args.n_samples))
 
     # Save results to file
     print(f"Saving data to {res_dir}")
     i = 0
-    for i, result in enumerate(tqdm(results)):
+    for i, result in enumerate(results):
         result = np.asarray(result)
         np.save(os.path.join(res_dir,classes[i]), result)
     i += 1
