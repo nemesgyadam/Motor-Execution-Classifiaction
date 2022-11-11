@@ -36,8 +36,9 @@ def collect_data(
     results = [[] for i in range(len(classes))]
     tasks = generate_order(len(classes), n_samples_per_class)
 
+    Unicorn.listen()
     print("Franky says RELAX!")
-    time.sleep(10)
+    time.sleep(5)
 
     for i, task in enumerate(tasks):
         clear()
@@ -45,21 +46,10 @@ def collect_data(
         print("Stand By! ({}/{})".format(i + 1, len(tasks)))
         time.sleep(1)
         print(config.commands[task])
-
-        ok = False
-        patient = 10
-        tries = 0
-        while not ok:
-            data = Unicorn.get_data(sample_length)
-            if type(data) == np.ndarray:
-                ok = True
-                tries = 0
-                results[task].append(data)
-            tries += 1
-            if tries > patient:
-                print("Patient is not responding!")
-                quit()
-    
+        time.sleep(2)
+        data = Unicorn.data_buffer[:, -sample_length * 500 :]
+        results[task].append(data)
+    Unicorn.stop()
     return results, classes
 
 
@@ -91,7 +81,7 @@ def main(args=None):
         result = np.asarray(result)
         np.save(os.path.join(res_dir,classes[i]), result)
     i += 1
-    Unicorn.stop()
+
 
 
 if __name__ == "__main__":

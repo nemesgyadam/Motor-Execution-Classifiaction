@@ -1,6 +1,7 @@
 import numpy as np
 import UnicornPy
 import time
+import threading
 from utils.time import timeit
 
 #unicorn_channels = "FP1, FFC1, FFC2, FCZ, CPZ, CPP1, CPP2, PZ, AccelX, AccelY, AccelZ, GyroX, GyroY, GyroZ, Battery, Sample"
@@ -55,6 +56,43 @@ class UnicornWrapper:
         print(f"Connected to {self.device_name}")
         print()
 
+    def listen(self):
+        self.listener = threading.Thread(target=self.listen_thread, daemon=True)
+
+        self.listener.start()
+        time.sleep(0.1)
+
+    def listen_thread(self):
+        self.buffer_size = UnicornPy.SamplingRate * 60 * 1 # 1 minute buffer
+        self.data_buffer = np.zeros((len(EEG_channels), self.buffer_size))
+        try:
+            receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
+            receiveBuffer = bytearray(receiveBufferBufferLength)
+
+            self.device.StartAcquisition(self.testsignale_enabled)
+            self.stop_buffer = False
+            while(not self.stop_buffer):
+                self.device.GetData(
+                    self.frame_length, receiveBuffer, receiveBufferBufferLength
+                )
+                data = np.frombuffer(
+                    receiveBuffer,
+                    dtype=np.float32,
+                    count=self.frame_length * self.total_channels,
+                )
+                data = np.reshape(data, (self.frame_length, self.total_channels))
+                EEG_data = data[:, EEG_channels]
+                self.data_buffer = np.roll(self.data_buffer, -self.frame_length, axis=1)
+                self.data_buffer[
+                    :, -self.frame_length :
+                ] = EEG_data.T  # transpose to get channels as rows
+
+        except UnicornPy.DeviceException as e:
+            print(e)
+            return -1
+        except Exception as e:
+            print("An unknown error occured. %s" % e)
+            return -2
     #@timeit()
     def get_data(self, duration=10):
         try:
@@ -102,6 +140,11 @@ class UnicornWrapper:
         return data_buffer
 
     def stop(self):
+        try:
+            self.stop_buffer = True
+            self.listener.join()
+        except:
+            ...
         try:
             self.device.StopAcquisition()
         except UnicornPy.DeviceException as e:

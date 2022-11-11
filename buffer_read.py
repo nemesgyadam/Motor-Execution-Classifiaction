@@ -16,9 +16,10 @@ def main(args=None):
     args = parse_args(args)
     Unicorn = UnicornWrapper()
 
-    # Read 2 seconds of data.
-    data = Unicorn.get_data(2)
-    print(data.shape)
+    Unicorn.listen()
+
+    last_two_secs = Unicorn.data_buffer[:, -500:]
+    print(last_two_secs.shape)
 
     Unicorn.stop()
 
