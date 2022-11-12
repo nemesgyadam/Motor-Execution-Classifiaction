@@ -14,7 +14,9 @@ data_root = "data/"
 def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("Subject", help="Name of the Subject")
-    parser.add_argument("--n_samples", default=1, help="Number of samples per class to record")
+    parser.add_argument(
+        "--n_samples", default=1, help="Number of samples per class to record"
+    )
     return parser.parse_args(args)
 
 
@@ -29,16 +31,14 @@ def generate_order(n_classes, n_samples_per_class=1):
     return order
 
 
-def collect_data(
-    Unicorn, sample_length,  n_samples_per_class=1
-):
+def collect_data(Unicorn, sample_length, n_samples_per_class=1):
     classes = config.classes
     results = [[] for i in range(len(classes))]
     tasks = generate_order(len(classes), n_samples_per_class)
 
     Unicorn.listen()
     print("Franky says RELAX!")
-    time.sleep(5)
+    time.sleep(20)
 
     for i, task in enumerate(tasks):
         clear()
@@ -47,7 +47,7 @@ def collect_data(
         time.sleep(1)
         print(config.commands[task])
         time.sleep(2)
-        data = Unicorn.data_buffer[:, -sample_length * 500 :]
+        data = Unicorn.data_buffer[:, -sample_length * Unicorn.sample_rate :]
         results[task].append(data)
     Unicorn.stop()
     return results, classes
@@ -72,16 +72,17 @@ def main(args=None):
     print()
     Unicorn = UnicornWrapper()
 
-    results, classes = collect_data(Unicorn, int(config.sample_length), int(args.n_samples))
+    results, classes = collect_data(
+        Unicorn, int(config.sample_length), int(args.n_samples)
+    )
 
     # Save results to file
     print(f"Saving data to {res_dir}")
     i = 0
     for i, result in enumerate(results):
         result = np.asarray(result)
-        np.save(os.path.join(res_dir,classes[i]), result)
+        np.save(os.path.join(res_dir, classes[i]), result)
     i += 1
-
 
 
 if __name__ == "__main__":

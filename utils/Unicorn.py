@@ -4,7 +4,7 @@ import time
 import threading
 from utils.time import timeit
 
-#unicorn_channels = "FP1, FFC1, FFC2, FCZ, CPZ, CPP1, CPP2, PZ, AccelX, AccelY, AccelZ, GyroX, GyroY, GyroZ, Battery, Sample"
+# unicorn_channels = "FP1, FFC1, FFC2, FCZ, CPZ, CPP1, CPP2, PZ, AccelX, AccelY, AccelZ, GyroX, GyroY, GyroZ, Battery, Sample"
 EEG_channels = list(
     range(
         UnicornPy.EEGConfigIndex, UnicornPy.EEGConfigIndex + UnicornPy.EEGChannelsCount
@@ -14,7 +14,9 @@ EEG_channels = list(
 
 class UnicornWrapper:
     def __init__(self):
-        self.frame_length = 25  # number of samples in between 1 and 25 acquired per acquisition cycle.
+        self.frame_length = (
+            25  # number of samples in between 1 and 25 acquired per acquisition cycle.
+        )
 
         # Get available device serials.
         self.deviceList = UnicornPy.GetAvailableDevices(True)
@@ -41,6 +43,7 @@ class UnicornWrapper:
         self.testsignale_enabled = False
         self.connect()
         self.total_channels = self.device.GetNumberOfAcquiredChannels()
+        self.sampe_rate = UnicornPy.SamplingRate
 
     def connect(self):
         self.device_name = self.deviceList[self.deviceID]
@@ -63,7 +66,7 @@ class UnicornWrapper:
         time.sleep(0.1)
 
     def listen_thread(self):
-        self.buffer_size = UnicornPy.SamplingRate * 60 * 1 # 1 minute buffer
+        self.buffer_size = UnicornPy.SamplingRate * 60 * 1  # 1 minute buffer
         self.data_buffer = np.zeros((len(EEG_channels), self.buffer_size))
         try:
             receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
@@ -71,7 +74,7 @@ class UnicornWrapper:
 
             self.device.StartAcquisition(self.testsignale_enabled)
             self.stop_buffer = False
-            while(not self.stop_buffer):
+            while not self.stop_buffer:
                 self.device.GetData(
                     self.frame_length, receiveBuffer, receiveBufferBufferLength
                 )
@@ -93,7 +96,8 @@ class UnicornWrapper:
         except Exception as e:
             print("An unknown error occured. %s" % e)
             return -2
-    #@timeit()
+
+    # @timeit()
     def get_data(self, duration=10):
         try:
             self.device.StopAcquisition()
@@ -111,8 +115,8 @@ class UnicornWrapper:
             # Dummy run to get the device ready
             for i in range(40):
                 self.device.GetData(
-                        self.frame_length, receiveBuffer, receiveBufferBufferLength
-                    )
+                    self.frame_length, receiveBuffer, receiveBufferBufferLength
+                )
 
             for i in range(int(n_data_points / self.frame_length)):
                 self.device.GetData(
