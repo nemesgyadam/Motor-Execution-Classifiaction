@@ -40,7 +40,7 @@ Each task was recorded with the following timeline:
 The raw EEG signals has been stored, all filtering and preprocessing applied before the train. Each session stored in separated folder.
 The 3 class has been stored in separated npy files. Each file contains 20 samples. So the files has the following dimension:
 
-(20,6,1000) --> N_sample, N_channel, Time_points(2sec*500hz)
+(20,6,1000) --> N_sample, N_channel, Time_points(2sec*250hz)
 
 &nbsp;
 # Training
