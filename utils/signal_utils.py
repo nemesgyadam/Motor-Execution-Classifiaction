@@ -23,7 +23,7 @@ def Notch(data, freq=50.0):
     return np.array(res).reshape(data.shape)
 
 
-def Bandpass(data, lowcut=1.0, highcut=60.0, order = 4):
+def Bandpass(data, lowcut=1.0, highcut=60.0, order=4):
     res = []
     for sample in data:
         for channel in sample:
@@ -37,6 +37,7 @@ def Bandpass(data, lowcut=1.0, highcut=60.0, order = 4):
             res.append(channel)
     return np.array(res).reshape(data.shape)
 
+
 def Normalize(data):
     res = []
     for sample in data:
@@ -45,6 +46,7 @@ def Normalize(data):
         sample = scaler.transform(sample)
         res.append(sample)
     return np.array(res)
+
 
 def Resample(data, new_length=128):
     res = []

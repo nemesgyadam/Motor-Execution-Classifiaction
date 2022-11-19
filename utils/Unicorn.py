@@ -4,7 +4,7 @@ import time
 import threading
 from utils.time import timeit
 
-# unicorn_channels = "FP1, FFC1, FFC2, FCZ, CPZ, CPP1, CPP2, PZ, AccelX, AccelY, AccelZ, GyroX, GyroY, GyroZ, Battery, Sample"
+# unicorn_channels = ["FP1", "FFC1", "FFC2", "FCZ", "CPZ", "CPP1", "CPP2", "PZ", "AccelX", "AccelY", "AccelZ", "GyroX", "GyroY", "GyroZ", "Battery", "Sample"]
 EEG_channels = list(
     range(
         UnicornPy.EEGConfigIndex, UnicornPy.EEGConfigIndex + UnicornPy.EEGChannelsCount
@@ -43,7 +43,7 @@ class UnicornWrapper:
         self.testsignale_enabled = False
         self.connect()
         self.total_channels = self.device.GetNumberOfAcquiredChannels()
-        self.sampe_rate = UnicornPy.SamplingRate
+        self.sample_rate = UnicornPy.SamplingRate
 
     def connect(self):
         self.device_name = self.deviceList[self.deviceID]
@@ -98,13 +98,13 @@ class UnicornWrapper:
             return -2
 
     # @timeit()
-    def get_data(self, duration=10):
+    def get_data(self, n_data_points=10):
         try:
             self.device.StopAcquisition()
         except UnicornPy.DeviceException as e:
             ...
 
-        n_data_points = int(duration * UnicornPy.SamplingRate)
+        # n_data_points = int(duration * UnicornPy.SamplingRate)
         data_buffer = np.zeros((len(EEG_channels), n_data_points))
         try:
             receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
@@ -142,6 +142,12 @@ class UnicornWrapper:
             print("An unknown error occured. %s" % e)
             return -2
         return data_buffer
+
+    def get_latest_data(self, n_data_points=500):
+        """
+        Read the last n samples from the buffer
+        """
+        return self.data_buffer[:, -n_data_points:]
 
     def stop(self):
         try:

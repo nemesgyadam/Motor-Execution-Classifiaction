@@ -2,7 +2,7 @@ import numpy as np
 import keras
 import os
 import random
-from utils.signal import DCFilter, Notch, Bandpass, Resample, Normalize
+from utils.signal_utils import DCFilter, Notch, Bandpass, Resample, Normalize
 from utils.augment import apply_augment
 
 

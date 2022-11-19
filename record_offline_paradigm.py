@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 from pathlib import Path
 
-from utils.Unicorn import UnicornWrapper
+
 from config.arms_offline import config
 
 clear = lambda: os.system("cls")
@@ -13,6 +13,7 @@ data_root = "data/"
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
+    parser.add_argument("Device", type=str, help="device or Arc")
     parser.add_argument("Subject", help="Name of the Subject")
     parser.add_argument(
         "--n_samples", default=1, help="Number of samples per class to record"
@@ -31,14 +32,14 @@ def generate_order(n_classes, n_samples_per_class=1):
     return order
 
 
-def collect_data(Unicorn, sample_length, n_samples_per_class=1):
+def collect_data(device, sample_length, n_samples_per_class=1):
     classes = config.classes
     results = [[] for i in range(len(classes))]
     tasks = generate_order(len(classes), n_samples_per_class)
 
-    Unicorn.listen()
+    device.listen()
     print("Franky says RELAX!")
-    time.sleep(20)
+    time.sleep(5)
 
     for i, task in enumerate(tasks):
         clear()
@@ -47,9 +48,9 @@ def collect_data(Unicorn, sample_length, n_samples_per_class=1):
         time.sleep(1)
         print(config.commands[task])
         time.sleep(2)
-        data = Unicorn.data_buffer[:, -sample_length * Unicorn.sample_rate :]
+        data = device.get_latest_data(sample_length * device.sample_rate)
         results[task].append(data)
-    Unicorn.stop()
+    device.stop()
     return results, classes
 
 
@@ -70,10 +71,19 @@ def main(args=None):
     print()
     print(f"Subject [{args.Subject}] {session} started!")
     print()
-    Unicorn = UnicornWrapper()
+    if args.Device == "Unicorn":
+        from utils.Unicorn import UnicornWrapper
+        device = ArcWrapper()
+
+    elif args.Device == "Arc":
+        from utils.Arc import ArcWrapper
+        device = ArcWrapper()
+
+    else:
+        raise ValueError("Device not supported")
 
     results, classes = collect_data(
-        Unicorn, int(config.sample_length), int(args.n_samples)
+        device, int(config.sample_length), int(args.n_samples)
     )
 
     # Save results to file
