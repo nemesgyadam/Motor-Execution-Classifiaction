@@ -25,6 +25,9 @@ def Notch(data, freq=50.0):
 
 def Bandpass(data, lowcut=1.0, highcut=60.0, order=4):
     res = []
+    original_shape = data.shape
+    if len(data.shape) == 2:
+        data = data.reshape(-1, data.shape[0], data.shape[1])
     for sample in data:
         for channel in sample:
             samp_freq = 250  # Sample frequency (Hz)
@@ -35,7 +38,7 @@ def Bandpass(data, lowcut=1.0, highcut=60.0, order=4):
             )
             channel = signal.filtfilt(b, a, channel)
             res.append(channel)
-    return np.array(res).reshape(data.shape)
+    return np.array(res).reshape(original_shape)
 
 
 def Normalize(data):

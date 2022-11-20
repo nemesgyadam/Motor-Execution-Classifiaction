@@ -1,10 +1,31 @@
+"""
+Wrapper class for gTec Unicorn EEG device.
+All access to the device should be done through this class.
+"""
 import numpy as np
 import UnicornPy
 import time
 import threading
 from utils.time import timeit
 
-# unicorn_channels = ["FP1", "FFC1", "FFC2", "FCZ", "CPZ", "CPP1", "CPP2", "PZ", "AccelX", "AccelY", "AccelZ", "GyroX", "GyroY", "GyroZ", "Battery", "Sample"]
+unicorn_channels = [
+    "FP1",
+    "FFC1",
+    "FFC2",
+    "FCZ",
+    "CPZ",
+    "CPP1",
+    "CPP2",
+    "PZ",
+    "AccelX",
+    "AccelY",
+    "AccelZ",
+    "GyroX",
+    "GyroY",
+    "GyroZ",
+    "Battery",
+    "Sample",
+]
 EEG_channels = list(
     range(
         UnicornPy.EEGConfigIndex, UnicornPy.EEGConfigIndex + UnicornPy.EEGChannelsCount
@@ -17,7 +38,15 @@ class UnicornWrapper:
         self.frame_length = (
             25  # number of samples in between 1 and 25 acquired per acquisition cycle.
         )
+        self.testsignale_enabled = False
 
+        self.find_devices()
+        self.connect()
+
+        self.total_channels = self.device.GetNumberOfAcquiredChannels()
+        self.sample_rate = UnicornPy.SamplingRate
+
+    def find_devices(self):
         # Get available device serials.
         self.deviceList = UnicornPy.GetAvailableDevices(True)
 
@@ -40,11 +69,6 @@ class UnicornWrapper:
             if self.deviceID < 0 or self.deviceID > len(self.deviceList):
                 raise IndexError("The selected device ID is not valid.")
 
-        self.testsignale_enabled = False
-        self.connect()
-        self.total_channels = self.device.GetNumberOfAcquiredChannels()
-        self.sample_rate = UnicornPy.SamplingRate
-
     def connect(self):
         self.device_name = self.deviceList[self.deviceID]
         print(f"Trying to connect to {self.device_name}")
@@ -59,14 +83,125 @@ class UnicornWrapper:
         print(f"Connected to {self.device_name}")
         print()
 
+    def start_session(self):
+        """
+        Continously listen to the Arc device.
+        """
+
+        self.session_thread = threading.Thread(
+            target=self.session, args=(), daemon=True
+        )
+        self.session_thread.start()
+        self.triggers = []
+        time.sleep(0.1)
+
+    def session(self):
+        self.session_buffer = []
+
+        try:
+            receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
+            receiveBuffer = bytearray(receiveBufferBufferLength)
+
+            self.device.StartAcquisition(self.testsignale_enabled)
+            self.stop_session = False
+            while not self.stop_session:
+                self.device.GetData(
+                    self.frame_length, receiveBuffer, receiveBufferBufferLength
+                )
+                start_timestamp = time.time_ns()
+
+                data = np.frombuffer(
+                    receiveBuffer,
+                    dtype=np.float32,
+                    count=self.frame_length * self.total_channels,
+                )
+                data = np.reshape(data, (self.frame_length, self.total_channels))
+                EEG_data = data[:, EEG_channels]
+                actual_data_received = EEG_data.shape[0]
+
+                time_stamp_stream = self.get_time_stamp_stream(
+                    start_timestamp, actual_data_received
+                )
+                trigger_stream = self.get_trigger_stream(time_stamp_stream)
+
+                # self.session_buffer[
+                #     :, buffer_index : buffer_index + actual_data_received
+                # ] = np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
+                # buffer_index += EEG_data.shape[0]
+
+                self.session_buffer.append(
+                    np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
+                )
+
+        except UnicornPy.DeviceException as e:
+            print(e)
+            return -1
+        except Exception as e:
+            print("An unknown error occured. %s" % e)
+            return -2
+
+    def trigger(self, trigger):
+        """
+        Send a trigger to the buffer.
+        """
+        self.triggers.append((time.time_ns(), trigger))
+
+    def get_time_stamp_stream(self, start_timestamp, actual_data_received):
+        """
+        Generate time stamp for frames.
+        """
+        time_stamps = np.zeros(actual_data_received)
+        for i in range(actual_data_received):
+            time_between_two_samples = 1000 / self.sample_rate
+            delay_ms = time_between_two_samples * (actual_data_received - i)
+            delay_ns = delay_ms * 1000000
+
+            time_stamps[i] = (
+                start_timestamp - delay_ns
+            )  # -start_time for relative time stamps
+        return time_stamps
+
+    def get_trigger_stream(self, time_stamps):
+        """
+        Collect triggers from trigger buffer.
+        And add them to main buffer, based on timestamp.
+        """
+        trigger_stream = np.zeros(len(time_stamps))
+
+        # Iterate over buffer triggers
+        # Find closes timestamp to trigger
+        for trigger in self.triggers:
+            # trigger[0] = timestamp
+            # trigger[1] = trigger value
+            if trigger[0] > time_stamps[0] and trigger[0] < time_stamps[-1]:
+                closest_timestamp = np.argmin(np.abs(time_stamps - trigger[0]))
+                trigger_stream[closest_timestamp] = trigger[1]
+            else:
+                if trigger[0] < time_stamps[0]:
+                    trigger_stream[0] = trigger[1]
+                else:
+                    trigger_stream[-1] = trigger[1]
+        self.triggers = []  # Clear trigger buffer
+        return trigger_stream
+
+    def get_session_data(self):
+        """
+        Get the complete data from the Arc device.
+        """
+        # data = self.session_buffer
+        # idx = np.argwhere(np.all(data[..., :] == 0, axis=0))
+        # data = np.delete(data, idx, axis=1)
+        # return data
+        return np.hstack(self.session_buffer)
+
     def listen(self):
         self.listener = threading.Thread(target=self.listen_thread, daemon=True)
 
         self.listener.start()
         time.sleep(0.1)
 
-    def listen_thread(self):
-        self.buffer_size = UnicornPy.SamplingRate * 60 * 1  # 1 minute buffer
+    def listen_thread(self, minutes=1):
+        self.buffer_size = UnicornPy.SamplingRate * 60 * minutes  # 1 minute buffer
         self.data_buffer = np.zeros((len(EEG_channels), self.buffer_size))
         try:
             receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
@@ -149,6 +284,16 @@ class UnicornWrapper:
         """
         return self.data_buffer[:, -n_data_points:]
 
+    def release(self):
+        try:
+            self.device.StopAcquisition()
+        except UnicornPy.DeviceException as e:
+            ...
+        try:
+            del self.device
+        except Exception as e:
+            ...
+
     def stop(self):
         try:
             self.stop_buffer = True
@@ -156,11 +301,9 @@ class UnicornWrapper:
         except:
             ...
         try:
-            self.device.StopAcquisition()
-        except UnicornPy.DeviceException as e:
+            self.stop_session = True
+            self.session_thread.join()
+        except:
             ...
 
-        try:
-            del self.device
-        except Exception as e:
-            ...
+        self.release()
