@@ -35,32 +35,36 @@ EEG_channels = list(
 
 class UnicornWrapper:
     def __init__(self):
-        self.frame_length = (
-            25  # number of samples in between 1 and 25 acquired per acquisition cycle.
-        )
+        """
+        Initialize the Arc device.
+        And connect to it.
+        """
+        self.frame_length = 25  # value 1 and 25 acquired per acquisition cycle.
         self.testsignale_enabled = False
 
-        self.find_devices()
+        self.select_device()
         self.connect()
 
         self.total_channels = self.device.GetNumberOfAcquiredChannels()
         self.sample_rate = UnicornPy.SamplingRate
 
-    def find_devices(self):
-        # Get available device serials.
+    def select_device(self):
+        """
+        Get available device serials.
+        If there is only one device, select it.
+        If there is more, choose from the available devices.
+        """
         self.deviceList = UnicornPy.GetAvailableDevices(True)
 
         if len(self.deviceList) <= 0 or self.deviceList is None:
             raise Exception("No device available.Please pair with a Unicorn first.")
 
-        # Print available device serials.
         print("Available Unicorn devices:")
         i = 0
         for device in self.deviceList:
             print("#%i %s" % (i, device))
             i += 1
 
-        # Request device selection.
         print()
         if len(self.deviceList) == 1:
             self.deviceID = 0
@@ -70,6 +74,10 @@ class UnicornWrapper:
                 raise IndexError("The selected device ID is not valid.")
 
     def connect(self):
+        """
+        Connect to the Unicorn device.
+        Does not start the session.
+        """
         self.device_name = self.deviceList[self.deviceID]
         print(f"Trying to connect to {self.device_name}")
         try:
@@ -83,9 +91,14 @@ class UnicornWrapper:
         print(f"Connected to {self.device_name}")
         print()
 
+
+    #################################################
+    ############### SESSION CONTROL #################
+    #################################################
     def start_session(self):
         """
-        Continously listen to the Arc device.
+        Continously listen to the Unicorn device.
+        And listen to the triggers.
         """
 
         self.session_thread = threading.Thread(
@@ -96,6 +109,13 @@ class UnicornWrapper:
         time.sleep(0.1)
 
     def session(self):
+        """
+        Session thread for recording the EEG data,
+        during the experiment.
+        Also listens to the triggers.
+        And collect data in format:
+        [(timestamp, trigger, data), ...]
+        """
         self.session_buffer = []
 
         try:
@@ -123,11 +143,6 @@ class UnicornWrapper:
                     start_timestamp, actual_data_received
                 )
                 trigger_stream = self.get_trigger_stream(time_stamp_stream)
-
-                # self.session_buffer[
-                #     :, buffer_index : buffer_index + actual_data_received
-                # ] = np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
-                # buffer_index += EEG_data.shape[0]
 
                 self.session_buffer.append(
                     np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
@@ -188,11 +203,11 @@ class UnicornWrapper:
         """
         Get the complete data from the Arc device.
         """
-        # data = self.session_buffer
-        # idx = np.argwhere(np.all(data[..., :] == 0, axis=0))
-        # data = np.delete(data, idx, axis=1)
-        # return data
         return np.hstack(self.session_buffer)
+
+    #################################################
+    ############# Record time slices ################
+    #################################################
 
     def listen(self):
         self.listener = threading.Thread(target=self.listen_thread, daemon=True)

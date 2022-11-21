@@ -1,5 +1,7 @@
-sample_length = 2
+# RECORDING PARAMS
 
+sample_length = 2   # seconds
+stand_by_time = 1   # seconds
 classes = ["Rest", "Left", "Right"]
 
 # commands = [
