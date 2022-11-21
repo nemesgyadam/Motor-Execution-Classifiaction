@@ -6,9 +6,10 @@ from pathlib import Path
 
 
 from config.arms_offline import config
+from utils.stim_utils import Stimulus
 
 clear = lambda: os.system("cls")
-data_root = "sessions/"
+
 
 
 def parse_args(args):
@@ -51,7 +52,7 @@ def prepare_folder(subject, log=True):
     """
     Prepare the folder structure for the data.
     """
-    subject_dir = os.path.join(data_root, subject)
+    subject_dir = os.path.join(config.data_path, subject)
     session = get_available_session_name(subject_dir)
     res_dir = os.path.join(subject_dir, session)
     Path(res_dir).mkdir(parents=True, exist_ok=True)
@@ -97,10 +98,11 @@ def collect_data(device, sample_length, n_samples_per_class=1, stand_by_time=1):
     ...
     """
     tasks = generate_order(len(config.classes), n_samples_per_class)
+    stim = Stimulus(config.classes, config.sample_length)
     device.start_session()
 
     print("Franky says RELAX!")
-    time.sleep(5)
+    time.sleep(10)
 
     for i, task in enumerate(tasks):
         clear()
@@ -108,9 +110,13 @@ def collect_data(device, sample_length, n_samples_per_class=1, stand_by_time=1):
         time.sleep(stand_by_time)
 
         print(config.commands[task])
+        stim.show(config.classes[task])
+
         device.trigger(task + 1)
         time.sleep(sample_length)
         device.trigger(10)
+        #stim.show("blank")
+    time.sleep(1)
     result = device.get_session_data()
     device.stop()
     return result
@@ -133,6 +139,7 @@ def main(args=None):
     """
     args = parse_args(args)
     res_dir = prepare_folder(args.Subject)
+    clear()
     device = init_device(args.Device)
 
     results = collect_data(

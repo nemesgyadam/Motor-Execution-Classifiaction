@@ -1,4 +1,5 @@
 # RECORDING PARAMS
+data_path = "sessions"
 
 sample_length = 2   # seconds
 stand_by_time = 1   # seconds
@@ -18,10 +19,11 @@ commands = [
 
 # TRAIN PARAMS
 batch_size = 120
-data_path = "data"
-val_sessions = [("Nemes", "session_01"), ("Nemes", "session_06")]
 
-resample_to = 128
+train_sessions = [('Erno', 'session_06')]
+val_sessions = [('Erno', 'session_08')]
+
+resample_to = None
 
 DC_filter = True
 

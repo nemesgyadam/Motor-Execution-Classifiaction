@@ -36,7 +36,7 @@ EEG_channels = list(
 class UnicornWrapper:
     def __init__(self):
         """
-        Initialize the Arc device.
+        Initialize the Unicorn device.
         And connect to it.
         """
         self.frame_length = 25  # value 1 and 25 acquired per acquisition cycle.
@@ -91,10 +91,6 @@ class UnicornWrapper:
         print(f"Connected to {self.device_name}")
         print()
 
-
-    #################################################
-    ############### SESSION CONTROL #################
-    #################################################
     def start_session(self):
         """
         Continously listen to the Unicorn device.
@@ -124,11 +120,13 @@ class UnicornWrapper:
 
             self.device.StartAcquisition(self.testsignale_enabled)
             self.stop_session = False
+
             while not self.stop_session:
+
+                start_timestamp = time.time_ns()
                 self.device.GetData(
                     self.frame_length, receiveBuffer, receiveBufferBufferLength
                 )
-                start_timestamp = time.time_ns()
 
                 data = np.frombuffer(
                     receiveBuffer,
@@ -142,6 +140,7 @@ class UnicornWrapper:
                 time_stamp_stream = self.get_time_stamp_stream(
                     start_timestamp, actual_data_received
                 )
+
                 trigger_stream = self.get_trigger_stream(time_stamp_stream)
 
                 self.session_buffer.append(
@@ -157,7 +156,7 @@ class UnicornWrapper:
 
     def trigger(self, trigger):
         """
-        Send a trigger to the buffer.
+        Store a trigger in a queue.
         """
         self.triggers.append((time.time_ns(), trigger))
 
@@ -192,6 +191,10 @@ class UnicornWrapper:
                 closest_timestamp = np.argmin(np.abs(time_stamps - trigger[0]))
                 trigger_stream[closest_timestamp] = trigger[1]
             else:
+                # TODO fix trigger delay!!!
+                # print(trigger)
+                # print(time_stamps[0], "--->", time_stamps[-1])
+                #input("Trigger outside of time stamp range")
                 if trigger[0] < time_stamps[0]:
                     trigger_stream[0] = trigger[1]
                 else:
@@ -199,107 +202,17 @@ class UnicornWrapper:
         self.triggers = []  # Clear trigger buffer
         return trigger_stream
 
+    #@timeit()
     def get_session_data(self):
         """
         Get the complete data from the Arc device.
         """
         return np.hstack(self.session_buffer)
 
-    #################################################
-    ############# Record time slices ################
-    #################################################
-
-    def listen(self):
-        self.listener = threading.Thread(target=self.listen_thread, daemon=True)
-
-        self.listener.start()
-        time.sleep(0.1)
-
-    def listen_thread(self, minutes=1):
-        self.buffer_size = UnicornPy.SamplingRate * 60 * minutes  # 1 minute buffer
-        self.data_buffer = np.zeros((len(EEG_channels), self.buffer_size))
-        try:
-            receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
-            receiveBuffer = bytearray(receiveBufferBufferLength)
-
-            self.device.StartAcquisition(self.testsignale_enabled)
-            self.stop_buffer = False
-            while not self.stop_buffer:
-                self.device.GetData(
-                    self.frame_length, receiveBuffer, receiveBufferBufferLength
-                )
-                data = np.frombuffer(
-                    receiveBuffer,
-                    dtype=np.float32,
-                    count=self.frame_length * self.total_channels,
-                )
-                data = np.reshape(data, (self.frame_length, self.total_channels))
-                EEG_data = data[:, EEG_channels]
-                self.data_buffer = np.roll(self.data_buffer, -self.frame_length, axis=1)
-                self.data_buffer[
-                    :, -self.frame_length :
-                ] = EEG_data.T  # transpose to get channels as rows
-
-        except UnicornPy.DeviceException as e:
-            print(e)
-            return -1
-        except Exception as e:
-            print("An unknown error occured. %s" % e)
-            return -2
-
-    # @timeit()
-    def get_data(self, n_data_points=10):
-        try:
-            self.device.StopAcquisition()
-        except UnicornPy.DeviceException as e:
-            ...
-
-        # n_data_points = int(duration * UnicornPy.SamplingRate)
-        data_buffer = np.zeros((len(EEG_channels), n_data_points))
-        try:
-            receiveBufferBufferLength = int(self.frame_length * self.total_channels * 4)
-            receiveBuffer = bytearray(receiveBufferBufferLength)
-
-            self.device.StartAcquisition(self.testsignale_enabled)
-
-            # Dummy run to get the device ready
-            for i in range(40):
-                self.device.GetData(
-                    self.frame_length, receiveBuffer, receiveBufferBufferLength
-                )
-
-            for i in range(int(n_data_points / self.frame_length)):
-                self.device.GetData(
-                    self.frame_length, receiveBuffer, receiveBufferBufferLength
-                )
-                data = np.frombuffer(
-                    receiveBuffer,
-                    dtype=np.float32,
-                    count=self.frame_length * self.total_channels,
-                )
-                data = np.reshape(data, (self.frame_length, self.total_channels))
-                EEG_data = data[:, EEG_channels]
-                data_buffer[
-                    :, i * self.frame_length : (i + 1) * self.frame_length
-                ] = EEG_data.T
-            del receiveBuffer
-            self.device.StopAcquisition()
-
-        except UnicornPy.DeviceException as e:
-            print(e)
-            return -1
-        except Exception as e:
-            print("An unknown error occured. %s" % e)
-            return -2
-        return data_buffer
-
-    def get_latest_data(self, n_data_points=500):
-        """
-        Read the last n samples from the buffer
-        """
-        return self.data_buffer[:, -n_data_points:]
-
     def release(self):
+        """
+        Release the device.
+        """
         try:
             self.device.StopAcquisition()
         except UnicornPy.DeviceException as e:
@@ -310,6 +223,11 @@ class UnicornWrapper:
             ...
 
     def stop(self):
+        """
+        Close all threads
+        stop connection
+        Release the device.
+        """
         try:
             self.stop_buffer = True
             self.listener.join()
