@@ -7,7 +7,7 @@ import UnicornPy
 import time
 import threading
 from utils.time import timeit
-
+#Fz, C3, Cz, C4, Pz, PO7, Oz and PO8
 unicorn_channels = [
     "FP1",
     "FFC1",

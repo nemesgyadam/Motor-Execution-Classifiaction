@@ -1,43 +1,90 @@
 import os
+import time
 import threading
-import cv2
+from PIL import Image, ImageTk
+
+from tkinter import Tk, Canvas, mainloop
 
 
-stim_folder = "resources/stim_imgs"
+
+root_path = "resources/stim_imgs"
 
 
 class Stimulus:
-    def __init__(self, classes, delay):
-        self.load_config(classes, delay)
+    def __init__(self, stim_folder, classes, resize = False):
+        self.stim_folder = stim_folder
+        self.resize = resize
+        self.start_GUI()
+        self.load_images(classes)
 
-    def load_config(self, classes, delay):
+    def load_images(self, classes):
         """
         Loads the stimulus images to memory.
         """
         self.images = {}
-        for c in classes:
-            self.images[c] = cv2.imread(os.path.join(stim_folder, c + ".png"))
-        self.images["blank"] = cv2.imread(os.path.join(stim_folder, "blank.png"))
-        self.delay = delay * 1000
 
-    def show_img(self, task):
+        for img_name in ["Blank", "Fixation"] + classes:
+            pilImage = Image.open(
+                os.path.join(root_path, self.stim_folder, img_name + ".jpg")
+            )
+            if self.resize:
+                imgWidth, imgHeight = pilImage.size
+                ratio = min(self.screenWidth / imgWidth, self.screenHeight / imgHeight)
+                imgWidth = int(imgWidth * ratio)
+                imgHeight = int(imgHeight * ratio)
+                pilImage = pilImage.resize((imgWidth, imgHeight))
+            self.images[img_name] = ImageTk.PhotoImage(pilImage)
+
+    def tkinter_thread(self):
         """
-        Actully show the stimulus.
+        Thread responsible for tkinter window
+        Note: The actual loop is created by mainloop tkinter function
         """
-        cv2.destroyAllWindows()
-        cv2.imshow("stim", self.images[task])
-        cv2.setWindowProperty("stim", cv2.WND_PROP_TOPMOST, 1)
-        cv2.waitKey(self.delay)
+        self.root = Tk()
+        self.root.bind("<Escape>", lambda x: self.root.destroy())
+
+        self.screenWidth, self.screenHeight = (
+            self.root.winfo_screenwidth(),
+            self.root.winfo_screenheight(),
+        )
+        self.root.overrideredirect(1)
+        self.root.geometry("%dx%d+0+0" % (self.screenWidth, self.screenHeight))
+        self.root.focus_set()
+
+        self.canvas = Canvas(
+            self.root, width=self.screenWidth, height=self.screenHeight
+        )
+        self.canvas.pack()
+        self.canvas.configure(background="white")
+        self.canvas.pack()
+        mainloop()
+
+    def start_GUI(self):
+        """
+        Configure and start a main tkinter thread
+        Note: Tkinter doesn't like to run a separated thead.
+        """
+        self.t1 = threading.Thread(target=self.tkinter_thread)
+        self.t1.start()
+
 
     def show(self, task: str):
         """
-        Start a thread to show the stimulus.
+        Change the canvas to the given stimulus image
         """
+        self.canvas.delete("all")
+
+        self.canvas.create_image(
+            self.screenWidth / 2, self.screenHeight / 2, image=self.images[task]
+        )
+
+    def stop(self):
+        """
+        Stop every thead and close window.
+        """
+        self.root.quit()
         try:
-            self.session_thread.join()
+            self.root.destroy()
         except:
             ...
-        self.session_thread = threading.Thread(
-            target=self.show_img, args=(task,), daemon=True
-        )
-        self.session_thread.start()
+        self.t1.join()

@@ -11,7 +11,6 @@ from utils.stim_utils import Stimulus
 clear = lambda: os.system("cls")
 
 
-
 def parse_args(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("Device", type=str, help="Unicorn or Arc")
@@ -98,7 +97,7 @@ def collect_data(device, sample_length, n_samples_per_class=1, stand_by_time=1):
     ...
     """
     tasks = generate_order(len(config.classes), n_samples_per_class)
-    stim = Stimulus(config.classes, config.sample_length)
+    stim = Stimulus(config.stim_folder, config.classes)
     device.start_session()
 
     print("Franky says RELAX!")
@@ -115,7 +114,7 @@ def collect_data(device, sample_length, n_samples_per_class=1, stand_by_time=1):
         device.trigger(task + 1)
         time.sleep(sample_length)
         device.trigger(10)
-        #stim.show("blank")
+        stim.show("blank")
     time.sleep(1)
     result = device.get_session_data()
     device.stop()
