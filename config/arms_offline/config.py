@@ -1,10 +1,19 @@
 # RECORDING PARAMS
 data_path = "sessions"
 
+relax_time = 10
+
+fixation_length = 2
+erp_length = 0
 sample_length = 2  # seconds
-stand_by_time = 1  # seconds
+rest_length = 2  # seconds
 classes = ["Rest", "Left", "Right"]
+
+
+#STIM UTILS
 stim_folder = 'arrows'
+stim_resize = False
+stim_full_screen = True
 
 # commands = [
 #     "Hold still!", "Raise your  LEFT hand!       <----",
@@ -18,7 +27,7 @@ commands = [
     "Fist your RIGHT hand!       ---->",
 ]
 
-relax_time = 10
+
 
 # TRAIN PARAMS
 batch_size = 120

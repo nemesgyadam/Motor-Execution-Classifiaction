@@ -59,7 +59,7 @@ class UnicornWrapper:
         if len(self.deviceList) <= 0 or self.deviceList is None:
             raise Exception("No device available.Please pair with a Unicorn first.")
 
-        print("Available Unicorn devices:")
+        print("Paied Unicorn devices:")
         i = 0
         for device in self.deviceList:
             print("#%i %s" % (i, device))

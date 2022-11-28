@@ -6,16 +6,18 @@ from PIL import Image, ImageTk
 from tkinter import Tk, Canvas, mainloop
 
 
-
 root_path = "resources/stim_imgs"
 
 
 class Stimulus:
-    def __init__(self, stim_folder, classes, resize = False):
-        self.stim_folder = stim_folder
-        self.resize = resize
+    def __init__(self, config):
+        self.classes = config.classes
+        self.stim_folder = config.stim_folder
+        self.resize = config.stim_resize
+        self.full_screen = config.stim_full_screen
+
         self.start_GUI()
-        self.load_images(classes)
+        self.load_images(self.classes)
 
     def load_images(self, classes):
         """
@@ -23,7 +25,7 @@ class Stimulus:
         """
         self.images = {}
 
-        for img_name in ["Blank", "Fixation"] + classes:
+        for img_name in ["Blank", "Fixation", "Relax"] + classes:
             pilImage = Image.open(
                 os.path.join(root_path, self.stim_folder, img_name + ".jpg")
             )
@@ -47,13 +49,18 @@ class Stimulus:
             self.root.winfo_screenwidth(),
             self.root.winfo_screenheight(),
         )
-        self.root.overrideredirect(1)
-        self.root.geometry("%dx%d+0+0" % (self.screenWidth, self.screenHeight))
-        self.root.focus_set()
 
-        self.canvas = Canvas(
-            self.root, width=self.screenWidth, height=self.screenHeight
-        )
+        self.root.overrideredirect(1)
+
+        if self.full_screen:
+            self.root.geometry("%dx%d+0+0" % (self.screenWidth, self.screenHeight))
+            self.canvas = Canvas(
+                self.root, width=self.screenWidth, height=self.screenHeight
+            )
+        else:
+            self.canvas = Canvas(self.root, width=200, height=200)
+
+        self.root.focus_set()
         self.canvas.pack()
         self.canvas.configure(background="white")
         self.canvas.pack()
@@ -67,16 +74,18 @@ class Stimulus:
         self.t1 = threading.Thread(target=self.tkinter_thread)
         self.t1.start()
 
-
     def show(self, task: str):
         """
         Change the canvas to the given stimulus image
         """
         self.canvas.delete("all")
 
-        self.canvas.create_image(
-            self.screenWidth / 2, self.screenHeight / 2, image=self.images[task]
-        )
+        if self.full_screen:
+            self.canvas.create_image(
+                self.screenWidth / 2, self.screenHeight / 2, image=self.images[task]
+            )
+        else:
+            self.canvas.create_image(100, 100, image=self.images[task])
 
     def stop(self):
         """

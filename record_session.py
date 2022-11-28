@@ -80,7 +80,7 @@ def init_device(device):
         raise ValueError("Device not supported")
 
 
-def collect_data(device, sample_length, n_samples_per_class=1, stand_by_time=1):
+def collect_data(device, config, n_samples_per_class=1):
     """
     The complete data collection process.
     Generate tasks in random order.
@@ -97,27 +97,41 @@ def collect_data(device, sample_length, n_samples_per_class=1, stand_by_time=1):
     ...
     """
     tasks = generate_order(len(config.classes), n_samples_per_class)
-    stim = Stimulus(config.stim_folder, config.classes)
+    stim = Stimulus(config)
     device.start_session()
 
     print("Franky says RELAX!")
-    time.sleep(10)
+    stim.show("Relax")
+    time.sleep(config.relax_time)
 
     for i, task in enumerate(tasks):
         clear()
-        print("Stand By! ({}/{})".format(i + 1, len(tasks)))
-        time.sleep(stand_by_time)
+
+        if config.fixation_length > 0:
+            print("Stand By! ({}/{})".format(i + 1, len(tasks)))
+            stim.show("Fixation")
+            time.sleep(config.fixation_length)
 
         print(config.commands[task])
         stim.show(config.classes[task])
-
+        if config.erp_length > 0:  # Wait out the ERP response
+            time.sleep(config.erp_length)
         device.trigger(task + 1)
-        time.sleep(sample_length)
+        time.sleep(config.sample_length)
+
         device.trigger(10)
-        stim.show("blank")
+
+        if (
+            config.rest_length > 0 and i != len(tasks) - 1
+        ):  # No Rest period after last trial
+            print("Rest period.")
+            stim.show("Blank")
+            time.sleep(config.rest_length)
+
     time.sleep(1)
     result = device.get_session_data()
     device.stop()
+    stim.stop()
     return result
 
 
@@ -141,12 +155,7 @@ def main(args=None):
     clear()
     device = init_device(args.Device)
 
-    results = collect_data(
-        device,
-        int(config.sample_length),
-        int(args.n_samples),
-        int(config.stand_by_time),
-    )
+    results = collect_data(device, config, int(args.n_samples))
 
     save_results(results, res_dir)
 
