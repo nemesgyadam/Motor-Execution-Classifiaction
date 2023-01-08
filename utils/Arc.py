@@ -80,15 +80,11 @@ class ArcWrapper:
         It will continously listen to the device for a given amount of minutes.
         And also handles the triggers.
         """
-        # self.buffer_size = self.sample_rate * 60 * minutes  # 1 minute buffer
-        # buffer_index = 0
-        # # Create buffer of shape 8 (timetamp, trigger, 6 EEG channels) * buffer_size
-        # self.session_buffer = np.zeros((2 + len(EEG_channels), self.buffer_size))
+
         self.session_buffer = []
 
         _ = self.board.get_board_data()  # Remove data from ring buffer
-        start_time = time.time_ns()
-        # try:
+        
         self.stop_session = False
         while not self.stop_session:
             time.sleep(self.frame_length / self.sample_rate)
@@ -102,18 +98,11 @@ class ArcWrapper:
             )
             trigger_stream = self.get_trigger_stream(time_stamp_stream)
 
-            # self.session_buffer[
-            #     :, buffer_index : buffer_index + actual_data_received
-            # ] = np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
-            # buffer_index += EEG_data.shape[0]
-
             self.session_buffer.append(
                 np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
             )
 
-        # except Exception as e:
-        #     print("An unknown error occured. %s" % e)
-        #     return -2
+
 
     def trigger(self, trigger):
         """
@@ -146,8 +135,6 @@ class ArcWrapper:
         # Iterate over buffer triggers
         # Find closes timestamp to trigger
         for trigger in self.triggers:
-            # trigger[0] = timestamp
-            # trigger[1] = trigger value
             if trigger[0] > time_stamps[0] and trigger[0] < time_stamps[-1]:
                 closest_timestamp = np.argmin(np.abs(time_stamps - trigger[0]))
                 trigger_stream[closest_timestamp] = trigger[1]
@@ -163,10 +150,6 @@ class ArcWrapper:
         """
         Get the complete data from the Arc device.
         """
-        # data = self.session_buffer
-        # idx = np.argwhere(np.all(data[..., :] == 0, axis=0))
-        # data = np.delete(data, idx, axis=1)
-        # return data
         return np.hstack(self.session_buffer)
 
     def listen(self):

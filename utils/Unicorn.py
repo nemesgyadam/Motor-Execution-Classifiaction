@@ -185,16 +185,11 @@ class UnicornWrapper:
         # Iterate over buffer triggers
         # Find closes timestamp to trigger
         for trigger in self.triggers:
-            # trigger[0] = timestamp
-            # trigger[1] = trigger value
             if trigger[0] > time_stamps[0] and trigger[0] < time_stamps[-1]:
                 closest_timestamp = np.argmin(np.abs(time_stamps - trigger[0]))
                 trigger_stream[closest_timestamp] = trigger[1]
             else:
                 # TODO fix trigger delay!!!
-                # print(trigger)
-                # print(time_stamps[0], "--->", time_stamps[-1])
-                #input("Trigger outside of time stamp range")
                 if trigger[0] < time_stamps[0]:
                     trigger_stream[0] = trigger[1]
                 else:
