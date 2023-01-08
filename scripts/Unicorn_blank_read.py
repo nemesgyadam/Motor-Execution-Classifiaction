@@ -21,7 +21,7 @@ def main(args=None):
     Unicorn = UnicornWrapper()
 
     # Read 2 seconds of data.
-    data = Unicorn.get_data(2)
+    data = Unicorn.get_data(2*Unicorn.sample_rate)
     print(data.shape)
 
     Unicorn.stop()

@@ -21,7 +21,20 @@ def parse_args(args):
 def main(args=None):
     args = parse_args(args)
     Arc = ArcWrapper()
-    Arc.listen()
+    #Arc.listen()
+
+    Arc.continous_listen()
+    time.sleep(1)
+    for i in range(40):
+        time.sleep(0.1)
+        Arc.trigger(i)
+    data = Arc.session_buffer[:,:2000]
+    print(data.shape)
+    np.savetxt("test.csv", data, delimiter=",")
+    quit()
+
+
+
 
     time.sleep(2)
 
