@@ -3,6 +3,8 @@ import time
 import threading
 from PIL import Image, ImageTk
 
+#TODO is tkinter ok? can be slow, big jitter
+# Lab streaming ????
 from tkinter import Tk, Canvas, mainloop
 
 

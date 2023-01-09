@@ -114,6 +114,7 @@ def collect_data(device, config, n_samples_per_class=1):
 
         print(config.commands[task])
         stim.show(config.classes[task])
+        #TODO random wait
         if config.erp_length > 0:  # Wait out the ERP response
             time.sleep(config.erp_length)
         device.trigger(task + 1)

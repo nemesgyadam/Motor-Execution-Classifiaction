@@ -97,7 +97,7 @@ class ArcWrapper:
                 start_timestamp, actual_data_received
             )
             trigger_stream = self.get_trigger_stream(time_stamp_stream)
-
+            #TODO concat rosz
             self.session_buffer.append(
                 np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
             )
