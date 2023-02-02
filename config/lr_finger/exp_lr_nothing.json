@@ -1,0 +1,30 @@
+{
+    "stim_dir": "resources/arrows/stim_imgs",
+    "ntrials": 10,
+    "event-duration": {
+        "eyes-open": 30,
+        "eyes-closed": 30,
+        "eyes-move": 15,
+        "baseline": 2,
+        "task": 2,
+        "break": [1.0, 1.5]
+    },
+    "events": {
+        "session-beg": {"marker": 100, "txt": "Session started"},
+        "session-end": {"marker": 200, "txt": "Session ended"},
+        "eyes-open-beg": {"marker": 101, "txt": "Open-eye measurement started; focus on this: X"},
+        "eyes-open-end": {"marker": 201, "txt": "Close eyes now"},
+        "eyes-closed-beg": {"marker": 102, "txt": "Closed-eye measurement started"},
+        "eyes-closed-end": {"marker": 202, "txt": "Open eyes now"},
+        "eyes-move-beg": {"marker": 103, "txt": "Move the eyes around randomly looking at objects"},
+        "eyes-move-end": {"marker": 203, "txt": "Are you ok? Stop moving your eyes pls.."},
+        "baseline": {"marker": 110, "img": "Fixation.jpg"},
+        "break": {"marker": 140, "img": "Blank.jpg"}
+    },
+    "tasks": {
+        "left": {"marker": 111, "img": "arrows/Left.jpg"},
+        "right": {"marker": 112, "img": "arrows/Right.jpg"},
+        "left-right": {"marker": 113, "img": "arrows/Left-right.png"},
+        "nothing": {"marker": 131, "img": "arrows/Rest.jpg"}
+    }
+}

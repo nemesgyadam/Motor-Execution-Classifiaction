@@ -142,7 +142,8 @@ class UnicornWrapper:
                 )
 
                 trigger_stream = self.get_trigger_stream(time_stamp_stream)
-                #TODO concat rosz
+                #TODO concat rosz; every start_timestamp is a little bit off, cause it should come from the device, and not from time.time_ns()
+                #   which now introduces a slight skip, because of processing time of the loop is non-zero
 
                 self.session_buffer.append(
                     np.vstack((time_stamp_stream, trigger_stream, EEG_data.T))
