@@ -1,10 +1,16 @@
+# lowest latency audio lib
+# import sound after setting prefs: https://www.psychopy.org/api/preferences.html
+from psychopy import prefs
+prefs.hardware['audioLib'] = ['PTB']
+prefs.hardware['audioLatencyMode'] = 3
+print('PsychoPy prefs:\n', prefs)
+
 import time
 import json
 import numpy as np
-from psychopy import visual, core
+from psychopy import visual, core, sound
+import psychtoolbox
 from pylsl import StreamInfo, StreamOutlet
-
-# TODO open/closed/moving eyes
 
 
 def load_stim(win, stim_dir, event, event_name):
@@ -12,20 +18,28 @@ def load_stim(win, stim_dir, event, event_name):
     if 'img' in event:
         stim = visual.ImageStim(win, image=f'{stim_dir}/{event["img"]}', interpolate=True, name=event_name)
     elif 'txt' in event:
-        stim = visual.TextStim(win, text=event['txt'])
+        stim = visual.TextStim(win, text=event['txt'], color='black')
     
-    if 'audio' in event:
-        pass  # TODO implement audio for baseline start
-
-    marker = [event['marker']] if 'marker' in event else []  # lsl needs a list of markers
-    return stim, marker
+    audio = sound.Sound(**event['audio']) if 'audio' in event else None
+    marker = [event['marker']] if 'marker' in event else None  # lsl needs a list of markers
+    return stim, audio, marker
 
 
-def fire_event(win, lsl_outlet, stim, marker):
+def fire_event(win, lsl_outlet, stim, audio, marker):
     if stim:
         stim.draw()
-    win.callOnFlip(lsl_outlet.push_sample, marker)
+    if marker:
+        win.callOnFlip(lsl_outlet.push_sample, marker)
+    if audio:
+        next_flip = win.getFutureFlipTime(clock='ptb')
+        audio.play(when=next_flip)
+
     win.flip()
+
+
+# TODO don't start experiment until sure that lsl is getting the markers somehow
+# TODO DO NOT PLACE STIM IMAGES TO LEFT/RIGHT, it would introduce eye artifacts
+# TODO add voice saying open/close eyes and such, so noone is needed to watch over the experiment
 
 
 # load cfg
@@ -38,39 +52,39 @@ lsl_info = StreamInfo(name='ext-marker', type='Markers', channel_count=1, channe
 lsl_outlet = StreamOutlet(lsl_info)
 
 # init window
-win = visual.Window((800, 600), screen=0, viewPos=(.5, .5), units='pix', fullscr=False, allowGUI=False)
+win = visual.Window((800, 600), screen=0, viewPos=(.5, .5), units='pix', fullscr=False, allowGUI=False, color='white')
 
 # load stims
 event_stims = {ev_name: load_stim(win, exp_cfg['stim_dir'], ev, ev_name) for ev_name, ev in exp_cfg['events'].items()}
 task_stims = {ev_name: load_stim(win, exp_cfg['stim_dir'], ev, ev_name) for ev_name, ev in exp_cfg['tasks'].items()}
 
 # start session
-core.wait(3)
+core.wait(exp_cfg['cushion-time'])
 fire_event(win, lsl_outlet, *event_stims['session-beg'])
-core.wait(3)
+core.wait(exp_cfg['cushion-time'])
 
 fire_event(win, lsl_outlet, *event_stims['eyes-open-beg'])
 core.wait(exp_cfg['event-duration']['eyes-open'])
 fire_event(win, lsl_outlet, *event_stims['eyes-open-end'])
-
-core.wait(3)
+core.wait(exp_cfg['cushion-time'])
 
 fire_event(win, lsl_outlet, *event_stims['eyes-closed-beg'])
 core.wait(exp_cfg['event-duration']['eyes-closed'])
 fire_event(win, lsl_outlet, *event_stims['eyes-closed-end'])
-
-core.wait(3)
+core.wait(exp_cfg['cushion-time'])
 
 fire_event(win, lsl_outlet, *event_stims['eyes-move-beg'])
 core.wait(exp_cfg['event-duration']['eyes-move'])
 fire_event(win, lsl_outlet, *event_stims['eyes-move-end'])
-
-core.wait(3)
+core.wait(exp_cfg['cushion-time'])
 
 # trials
 task_types = list(exp_cfg['tasks'].keys())
 rnd_tasks = np.random.randint(0, len(task_types), exp_cfg['ntrials'])
 rnd_break_dur = np.random.uniform(*exp_cfg['event-duration']['break'], exp_cfg['ntrials'])
+
+fire_event(win, lsl_outlet, *event_stims['trials-beg'])
+core.wait(exp_cfg['cushion-time'])
 
 for trial_i in range(exp_cfg['ntrials']):  # TODO or provide ntrials as user input
 
@@ -84,7 +98,11 @@ for trial_i in range(exp_cfg['ntrials']):  # TODO or provide ntrials as user inp
     core.wait(exp_cfg['event-duration']['task'])
 
     # break
-    fire_event(win, lsl_outlet, *task_stims[task])
+    fire_event(win, lsl_outlet, *event_stims['break'])
     core.wait(rnd_break_dur[trial_i])
 
 fire_event(win, lsl_outlet, *event_stims['session-end'])
+core.wait(exp_cfg['cushion-time'])
+
+win.close()
+core.quit()
