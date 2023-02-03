@@ -127,9 +127,8 @@ def experiment():
 
     win.close()
     logging.flush()
-    core.quit()
-
     print('Log stored at:', log_path)
+    core.quit()
 
 
 if __name__ == '__main__':
