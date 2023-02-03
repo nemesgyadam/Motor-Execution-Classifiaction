@@ -1,5 +1,5 @@
 {
-    "stim_dir": "resources/stim_imgs",
+    "stim_dir": "resources",
     "ntrials": 200,
     "cushion-time": 3,
     "event-duration": {
@@ -14,19 +14,19 @@
         "session-beg": {"marker": 100, "txt": "Session started"},
         "session-end": {"marker": 200, "txt": "Session is done; good job!"},
         "eyes-open-beg": {"marker": 101, "txt": "Open-eye measurement started; focus on this:\n\nX"},
-        "eyes-open-end": {"marker": 201, "txt": "Close eyes now"},
+        "eyes-open-end": {"marker": 201, "txt": "Close eyes now", "audio": "audio/close_your_eyes.flac"},
         "eyes-closed-beg": {"marker": 102, "txt": "Closed-eye measurement started"},
-        "eyes-closed-end": {"marker": 202, "txt": "Open eyes now"},
+        "eyes-closed-end": {"marker": 202, "txt": "Open eyes now", "audio": "audio/open_your_eyes.flac"},
         "eyes-move-beg": {"marker": 103, "txt": "Move the eyes around randomly looking at objects"},
         "eyes-move-end": {"marker": 203, "txt": "Are you ok? Stop moving your eyes pls.."},
         "trials-beg": {"txt": "Trials beginning now"},
-        "baseline": {"marker": 110, "img": "arrows/Fixation.jpg", "audio": {"value": 1000, "secs": 0.2}},
-        "break": {"marker": 140, "img": "arrows/Blank.jpg"}
+        "baseline": {"marker": 110, "img": "stim_imgs/arrows/Fixation.jpg", "tone": {"value": 1000, "secs": 0.2}},
+        "break": {"marker": 140, "img": "stim_imgs/arrows/Blank.jpg"}
     },
     "tasks": {
-        "left": {"marker": 111, "img": "arrows/Left.jpg"},
-        "right": {"marker": 112, "img": "arrows/Right.jpg"},
-        "left-right": {"marker": 113, "img": "arrows/Left-right.png"},
-        "nothing": {"marker": 131, "img": "arrows/Rest.jpg"}
+        "left": {"marker": 111, "img": "stim_imgs/arrows/Left.jpg"},
+        "right": {"marker": 112, "img": "stim_imgs/arrows/Right.jpg"},
+        "left-right": {"marker": 113, "img": "stim_imgs/arrows/Left-right.png"},
+        "nothing": {"marker": 131, "img": "stim_imgs/arrows/Rest.jpg"}
     }
 }

@@ -20,19 +20,25 @@ def load_stim(win, stim_dir, event, event_name):
     elif 'txt' in event:
         stim = visual.TextStim(win, text=event['txt'], color='black')
     
-    audio = sound.Sound(**event['audio']) if 'audio' in event else None
+    # note: psychopy ptb backend can only play 48kHz sounds
+    tone = sound.Sound(**event['tone']) if 'tone' in event else None
+    audio = sound.Sound(f'{stim_dir}/{event["audio"]}') if 'audio' in event else None
     marker = [event['marker']] if 'marker' in event else None  # lsl needs a list of markers
-    return stim, audio, marker
+
+    return stim, tone, audio, marker
 
 
-def fire_event(win, lsl_outlet, stim, audio, marker):
+def fire_event(win, lsl_outlet, stim=None, tone=None, audio=None, marker=None):
     if stim:
         stim.draw()
     if marker:
         win.callOnFlip(lsl_outlet.push_sample, marker)
-    if audio:
+    if tone or audio:
         next_flip = win.getFutureFlipTime(clock='ptb')
-        audio.play(when=next_flip)
+        if tone:
+            tone.play(when=next_flip)
+        if audio:
+            audio.play(when=next_flip)
 
     win.flip()
 
