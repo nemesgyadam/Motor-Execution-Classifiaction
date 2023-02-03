@@ -1,6 +1,6 @@
 {
     "stim_dir": "resources",
-    "ntrials": 200,
+    "ntrials": 5,
     "cushion-time": 3,
     "event-duration": {
         "eyes-open": 30,
@@ -13,7 +13,7 @@
     "events": {
         "session-beg": {"marker": 100, "txt": "Session started"},
         "session-end": {"marker": 200, "txt": "Session is done; good job!"},
-        "eyes-open-beg": {"marker": 101, "txt": "Open-eye measurement started; focus on this:\n\nX"},
+        "eyes-open-beg": {"marker": 101, "txt": "Open-eye measurement started; focus on:\n\nX"},
         "eyes-open-end": {"marker": 201, "txt": "Close eyes now", "audio": "audio/close_your_eyes.flac"},
         "eyes-closed-beg": {"marker": 102, "txt": "Closed-eye measurement started"},
         "eyes-closed-end": {"marker": 202, "txt": "Open eyes now", "audio": "audio/open_your_eyes.flac"},
