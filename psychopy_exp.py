@@ -1,17 +1,16 @@
-# lowest latency audio lib
-# import sound after setting prefs: https://www.psychopy.org/api/preferences.html
+# import sound module after setting audio prefs: https://www.psychopy.org/api/preferences.html
 from psychopy import prefs
-prefs.hardware['audioLib'] = ['PTB']
-prefs.hardware['audioLatencyMode'] = 3
+prefs.hardware['audioLib'] = ['PTB']  # lowest latency audio lib
+prefs.hardware['audioLatencyMode'] = 3  # real-time af
 print('PsychoPy preferences:\n', prefs)
 
-from datetime import datetime
 import json
+from datetime import datetime
 import numpy as np
+from pylsl import StreamInfo, StreamOutlet
 from psychopy import visual, core, sound
 from psychopy import logging
 import psychtoolbox  # if importing fails, ptb audio backend is not available
-from pylsl import StreamInfo, StreamOutlet
 
 
 def load_event(win, stim_dir, event, event_name):
@@ -21,7 +20,7 @@ def load_event(win, stim_dir, event, event_name):
     elif 'txt' in event:
         vis = visual.TextStim(win, text=event['txt'], color='black')
     
-    # note: psychopy ptb backend can only play 48kHz sounds
+    # note: psychopy ptb audio backend can only play 48kHz sounds
     tone = sound.Sound(**event['tone']) if 'tone' in event else None
     audio = sound.Sound(f'{stim_dir}/{event["audio"]}') if 'audio' in event else None
     marker = [event['marker']] if 'marker' in event else None  # lsl needs a list of markers
@@ -62,7 +61,7 @@ def experiment():
     ntrials = exp_cfg['ntrials'] if len(ntrials_inp) == 0 else int(ntrials_inp)
     event_durations = exp_cfg['event-duration']
     session_duration = event_durations['eyes-open'] + event_durations['eyes-closed'] + event_durations['eyes-move'] + \
-                    ntrials * (event_durations['baseline'] + event_durations['task'] + event_durations['break'][1])
+                       ntrials * (event_durations['baseline'] + event_durations['task'] + event_durations['break'][1])
     print(f'Starting session with {ntrials} trials taking ~{session_duration / 60:.0f} minutes')
 
     # setup psychopy logging
@@ -122,6 +121,7 @@ def experiment():
         fire_event(win, lsl_outlet, *event_stims['break'])
         core.wait(rnd_break_dur[trial_i])
 
+    # end session
     fire_event(win, lsl_outlet, *event_stims['session-end'])
     core.wait(exp_cfg['cushion-time'])
 
