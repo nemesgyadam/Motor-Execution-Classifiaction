@@ -3,11 +3,11 @@
     "ntrials": 5,
     "cushion-time": 3,
     "event-duration": {
-        "eyes-open": 30,
-        "eyes-closed": 30,
-        "eyes-move": 15,
+        "eyes-open": 2,
+        "eyes-closed": 2,
+        "eyes-move": 2,
         "baseline": 1.5,
-        "task": 2,
+        "task": [2, 3],
         "break": [1.0, 1.5]
     },
     "events": {
@@ -20,13 +20,14 @@
         "eyes-move-beg": {"marker": 103, "txt": "Move the eyes around randomly looking at objects"},
         "eyes-move-end": {"marker": 203, "txt": "Are you ok? Stop moving your eyes pls.."},
         "trials-beg": {"txt": "Trials beginning now"},
-        "baseline": {"marker": 110, "img": "stim_imgs/arrows/Fixation.jpg", "tone": {"value": 1000, "secs": 0.2}},
-        "break": {"marker": 140, "img": "stim_imgs/arrows/Blank.jpg"}
+        "trials-instruct": {"txt": "!!! TODO !!! SHORT INSTRUCTIONS HERE"},
+        "baseline": {"marker": 110, "img": "stim_imgs/arrows/Fixation.png", "tone": {"value": 1000, "secs": 0.2}},
+        "break": {"marker": 140, "img": "stim_imgs/arrows/Blank.png"}
     },
     "tasks": {
-        "left": {"marker": 111, "img": "stim_imgs/arrows/Left.jpg"},
-        "right": {"marker": 112, "img": "stim_imgs/arrows/Right.jpg"},
+        "left": {"marker": 111, "img": "stim_imgs/arrows/Left.png"},
+        "right": {"marker": 112, "img": "stim_imgs/arrows/Right.png"},
         "left-right": {"marker": 113, "img": "stim_imgs/arrows/Left-right.png"},
-        "nothing": {"marker": 131, "img": "stim_imgs/arrows/Rest.jpg"}
+        "nothing": {"marker": 131, "img": "stim_imgs/arrows/Rest.png"}
     }
 }
