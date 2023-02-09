@@ -7,6 +7,9 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 from typing import List, Callable
 from collections import deque
+import matplotlib.pylab as pylab
+import mne
+
 
 # Basic parameters for the plotting window
 plot_duration = 5  # how many seconds of data to show
@@ -46,7 +49,8 @@ class DataInlet(Inlet):
     should be plotted as multiple lines."""
     dtypes = [[], np.float32, np.float64, None, np.int32, np.int16, np.int8, np.int64]
 
-    def __init__(self, info: pylsl.StreamInfo, plt: pg.PlotItem, static_offset: int = 0, anal_stream: Callable = None):
+    def __init__(self, info: pylsl.StreamInfo, plt: pg.PlotItem, static_offset: int = 0,
+                 anal_stream: Callable = None, cmap_name='GnBu'):
         super().__init__(info)
         self.static_offset = static_offset
         self.anal_stream = anal_stream
@@ -55,8 +59,13 @@ class DataInlet(Inlet):
         bufsize = (2 * math.ceil(info.nominal_srate() * plot_duration), info.channel_count())
         self.buffer = np.empty(bufsize, dtype=self.dtypes[info.channel_format()])
         empty = np.array([])
+
         # create one curve object for each channel/line that will handle displaying the data
-        self.curves = [pg.PlotCurveItem(x=empty, y=empty, autoDownsample=True) for _ in range(self.channel_count)]
+        cm = pylab.get_cmap(cmap_name)
+        colors = [(np.array(cm(i / self.channel_count)[:3]) * 255).astype(int)
+                  for i in range(self.channel_count)]  # courtesy of retarted qt plotting 
+        self.curves = [pg.PlotCurveItem(x=empty, y=empty, autoDownsample=True, pen=pg.mkPen(colors[i]))
+                       for i in range(self.channel_count)]
         for curve in self.curves:
             plt.addItem(curve)
 
@@ -98,14 +107,15 @@ class MarkerInlet(Inlet):
     """A MarkerInlet shows events that happen sporadically as vertical lines"""
     def __init__(self, info: pylsl.StreamInfo, formatter: Callable = None):
         super().__init__(info)
-        self.formatter = formatter if formatter else lambda m: str(m)
+        self.formatter = formatter if formatter else lambda m: (str(m), m)
+        self.color_pens = [pg.mkPen((np.array(pylab.cm.tab20(i)[:3]) * 255).astype(int)) for i in range(20)]
 
     def pull_and_plot(self, plot_time, plt):
         strings, timestamps = self.inlet.pull_chunk(0)
         if timestamps:
             for string, ts in zip(strings, timestamps):
-                label = self.formatter(string)
-                plt.addItem(pg.InfiniteLine(ts, angle=90, movable=False, label=label))
+                label, marker_id = self.formatter(string)
+                plt.addItem(pg.InfiniteLine(ts, angle=90, movable=False, label=label, pen=self.color_pens[marker_id]))
 
 
 class UnicornStreamAnal:
@@ -126,9 +136,10 @@ class UnicornStreamAnal:
 
     def __init__(self) -> None:
         self.call_i = 0
-        self.update_freq = 5
+        self.update_freq = 1
         self.neeg_chans = 8
         self.sampling_freq = 250
+        self.ndots_hl = 7
 
         ascii_path = 'resources/unicorn_ascii.txt'
         with open(ascii_path, 'rt') as f:
@@ -139,10 +150,15 @@ class UnicornStreamAnal:
         self.clean_rng = (-100, 100)  # (-100, 100)
         self.chan_poz = [np.sort(np.where(self.ascii_art == str(ch))[0]) for ch in self.chans]
         self.chan_num_poz = [cp[2] for cp in self.chan_poz]  # assumed that always the 3rd chan character pos is the middle one
+        self.ndots = (self.ascii_art == '.').sum()
 
-    def _is_clean(self, x, y):
-        # TODO do bandpass 1-30Hz
-        return np.all((self.clean_rng[0] < y) & (y < self.clean_rng[1]))  # TODO
+        self.clean_filter = mne.filter.create_filter(None, self.sampling_freq, l_freq=1, h_freq=30, verbose=False)
+
+    def _is_clean(self, x, y):  # per channel
+        filt_y = np.convolve(y, self.clean_filter, 'same')
+        filt_y = mne.filter.notch_filter(filt_y, self.sampling_freq, [50, 60])
+        last_1_sec = filt_y[-self.sampling_freq:]
+        return np.all((self.clean_rng[0] < last_1_sec) & (last_1_sec < self.clean_rng[1]))
 
     def __call__(self, xy):
         self.call_i += 1
@@ -156,15 +172,26 @@ class UnicornStreamAnal:
             for cp, chan_i in zip(self.chan_num_poz, self.chans):
                 self.ascii_art[cp] = str(chan_i)
             
+            dot_counter = 0
             ascii_print = []
             for c in self.ascii_art:
+
+                active_dot = False
                 if c == UnicornStreamAnal.GOOD_CHAR:
                     ascii_print.append(UnicornStreamAnal.cmdcol.OKGREEN)
                 elif c == UnicornStreamAnal.BAD_CHAR:
                     ascii_print.append(UnicornStreamAnal.cmdcol.FAIL)
+                elif c.isdigit():
+                    ascii_print.append(UnicornStreamAnal.cmdcol.BOLD)
+                elif c == '.':
+                    dot_counter += 1
+                    which_dot = self.call_i % self.ndots
+                    if which_dot <= dot_counter < which_dot + self.ndots_hl:
+                        active_dot = True
+                        ascii_print.append(UnicornStreamAnal.cmdcol.WARNING)
                 ascii_print.append(c)
 
-                if c in (UnicornStreamAnal.GOOD_CHAR, UnicornStreamAnal.BAD_CHAR):
+                if c in (UnicornStreamAnal.GOOD_CHAR, UnicornStreamAnal.BAD_CHAR) or c.isdigit() or active_dot:
                     ascii_print.append(UnicornStreamAnal.cmdcol.ENDC)
             
             ascii_print = ''.join(ascii_print)
@@ -177,7 +204,8 @@ class UnicornStreamAnal:
 
             os.system('cls')
             print(ascii_print)
-            print(f'Samples: {nsamples}, {nsamples/{self.sampling_freq}:.2f} sec | mean v: ({mean_min_y:.2f}, {mean_max_y:.2f}) |'
+            print(f'Samples: {nsamples}, {nsamples / self.sampling_freq:.2f} '
+                  f'sec | mean v: ({mean_min_y:.2f}, {mean_max_y:.2f}) |'
                   f'\nv: {dict(list(min_maxes.items())[:len(self.chans) // 2])}'
                   f'\n   {dict(list(min_maxes.items())[len(self.chans) // 2:])}', flush=True)
 
@@ -213,7 +241,7 @@ def main():
             if info.name() == 'Gamepad Events':
                 btn_map = {0: 'A', 1: 'B', 2: 'X', 3: 'Y', 4: 'Down', 5: 'Left', 6: 'Right', 7: 'Up',
                            8: 'L1', 9: 'R1', 10: 'Start', 11: 'L3', 12: 'R3', 13: 'Select', 14: 'Guide'}
-                formatter = lambda m: f'G-{btn_map[m[0]]}-{("OFF", "ON")[m[1]]}'
+                formatter = lambda m: (f'G-{btn_map[m[0]]}-{("OFF", "ON")[m[1]]}', m[0])
 
             inlets.append(MarkerInlet(info, formatter))
 

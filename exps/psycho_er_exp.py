@@ -44,21 +44,6 @@ def fire_event(win, lsl_outlet, vis=None, tone=None, audio=None, marker=None):
     win.flip()
 
 
-def gen_participant_id():
-    print('\nType in participant information for id generation:')
-    name = input("Name: ")
-    print("Born in..")
-    year =  input("\tyear:  ")
-    month = input("\tmonth: ")
-    day =   input("\tday:   ")
-
-    assert year.isdigit() and month.isdigit() and day.isdigit() and ' ' in name
-
-    to_hash = f'{name}{int(year)}{int(month)}{int(day)}'.replace(' ','').lower()
-    hashed = hashlib.md5(to_hash.encode())
-    return hashed.hexdigest()[:8]
-
-
 def experiment():
 
     # load cfg
@@ -77,13 +62,10 @@ def experiment():
     cfg_json_str = json.dumps(exp_cfg)
     logging.log(f'CFG:{hashlib.md5(cfg_json_str.encode()).hexdigest()[:8]}:{cfg_json_str}', logging.INFO)
 
-    # get participant id
-    participant_id = gen_participant_id()
-    print(f'Copy participant ID to the Experiments table: "{participant_id}"')
-    logging.log(f'Participant id: "{participant_id}"', logging.INFO)
-
     # set up trials
-    input('\nPress enter after LSL recorder has started..')
+    input('\n#######################################\n'
+          'Fill in and Start LabRecorder then press Enter..'
+          '\n#######################################')
     ntrials_inp = input(f'Number of trials ({exp_cfg["ntrials"]}): ')
     ntrials = exp_cfg['ntrials'] if len(ntrials_inp) == 0 else int(ntrials_inp)
     event_durations = exp_cfg['event-duration']
@@ -103,6 +85,9 @@ def experiment():
     logging.log(f'Session begins with {ntrials} trials', logging.INFO)
     core.wait(exp_cfg['cushion-time'])
     fire_event(win, lsl_outlet, *event_stims['session-beg'])
+    core.wait(exp_cfg['cushion-time'])
+
+    fire_event(win, lsl_outlet, *event_stims['welcome'])
     core.wait(exp_cfg['cushion-time'])
 
     # eyes-open
@@ -135,7 +120,7 @@ def experiment():
 
     word_per_sec = 2
     fire_event(win, lsl_outlet, *event_stims['trials-instruct'])
-    core.wait(len(exp_cfg['events']['trials-instruct']['txt'].split(' ')) * (1 / word_per_sec))
+    core.wait(len(exp_cfg['events']['trials-instruct']['txt'].split(' ')) * (1 / word_per_sec) + exp_cfg['cushion-time'])
 
     fire_event(win, lsl_outlet, *event_stims['trials-beg'])
     core.wait(2 * exp_cfg['cushion-time'])
