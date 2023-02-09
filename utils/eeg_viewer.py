@@ -135,9 +135,10 @@ class UnicornStreamAnal:
             self.ascii_art = f.read()
         self.ascii_art = np.array(list(self.ascii_art))
 
-        self.chans = range(1, 9)
+        self.chans = range(1, self.neeg_chans + 1)
         self.clean_rng = (-100, 100)  # (-100, 100)
-        self.chan_poz = [np.sort(np.where(self.ascii_art == str(ch))[0]) for ch in range(1, 9)]
+        self.chan_poz = [np.sort(np.where(self.ascii_art == str(ch))[0]) for ch in self.chans]
+        self.chan_num_poz = [cp[2] for cp in self.chan_poz]  # assumed that always the 3rd chan character pos is the middle one
 
     def _is_clean(self, x, y):
         # TODO do bandpass 1-30Hz
@@ -152,6 +153,8 @@ class UnicornStreamAnal:
             
             for is_clean, chan_pos in zip(are_clean, self.chan_poz):
                 self.ascii_art[chan_pos] = UnicornStreamAnal.GOOD_CHAR if is_clean else UnicornStreamAnal.BAD_CHAR
+            for cp, chan_i in zip(self.chan_num_poz, self.chans):
+                self.ascii_art[cp] = str(chan_i)
             
             ascii_print = []
             for c in self.ascii_art:
