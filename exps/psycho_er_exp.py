@@ -29,7 +29,7 @@ def load_event(win, stim_dir, event, event_name):
     return vis, tone, audio, marker
 
 
-def fire_event(win, lsl_outlet, vis=None, tone=None, audio=None, marker=None):
+def fire_event(win: visual.Window, lsl_outlet: StreamOutlet, vis=None, tone=None, audio=None, marker=None):
     if vis:
         vis.draw()
     if marker:
@@ -119,8 +119,13 @@ def experiment():
     rnd_break_dur = np.random.uniform(*event_durations['break'], ntrials)
 
     word_per_sec = 2
-    fire_event(win, lsl_outlet, *event_stims['trials-instruct'])
-    core.wait(len(exp_cfg['events']['trials-instruct']['txt'].split(' ')) * (1 / word_per_sec) + exp_cfg['cushion-time'])
+    time2read = lambda txt: len(txt.split(' ')) * (1 / word_per_sec) + exp_cfg['cushion-time']
+    fire_event(win, lsl_outlet, *event_stims['trials-instruct-1'])
+    core.wait(time2read(exp_cfg['events']['trials-instruct-1']['txt']))
+    fire_event(win, lsl_outlet, *event_stims['trials-instruct-2'])
+    core.wait(20)
+    fire_event(win, lsl_outlet, *event_stims['trials-instruct-3'])
+    core.wait(time2read(exp_cfg['events']['trials-instruct-3']['txt']))
 
     fire_event(win, lsl_outlet, *event_stims['trials-beg'])
     core.wait(2 * exp_cfg['cushion-time'])

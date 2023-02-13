@@ -115,7 +115,8 @@ class MarkerInlet(Inlet):
         if timestamps:
             for string, ts in zip(strings, timestamps):
                 label, marker_id = self.formatter(string)
-                plt.addItem(pg.InfiniteLine(ts, angle=90, movable=False, label=label, pen=self.color_pens[marker_id]))
+                marker_id = marker_id[0] if isinstance(marker_id, list) else marker_id
+                plt.addItem(pg.InfiniteLine(ts, angle=90, movable=False, label=label, pen=self.color_pens[marker_id % 20]))
 
 
 class UnicornStreamAnal:
