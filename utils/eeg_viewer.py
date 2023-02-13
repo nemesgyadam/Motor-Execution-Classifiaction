@@ -121,6 +121,11 @@ class MarkerInlet(Inlet):
 
 class UnicornStreamAnal:
 
+    # TODO check if ref electrode in signals, subtract it
+    # TODO print trial number or in exp script
+
+    # TODO analyze xdf files and see if signal drops are present (consecutive signals w/ same value)
+
     class cmdcol:
         HEADER = '\033[95m'
         OKBLUE = '\033[94m'
@@ -157,7 +162,7 @@ class UnicornStreamAnal:
 
     def _is_clean(self, x, y):  # per channel
         filt_y = np.convolve(y, self.clean_filter, 'same')
-        filt_y = mne.filter.notch_filter(filt_y, self.sampling_freq, [50, 60])
+        filt_y = mne.filter.notch_filter(filt_y, self.sampling_freq, [50, 60], verbose=False)
         last_1_sec = filt_y[-self.sampling_freq:]
         return np.all((self.clean_rng[0] < last_1_sec) & (last_1_sec < self.clean_rng[1]))
 

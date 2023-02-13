@@ -8,3 +8,5 @@ UnicornSuite.pdf
 venv/
 out/
 logs/
+pygsheets
+keys/

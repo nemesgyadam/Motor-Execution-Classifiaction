@@ -30,7 +30,7 @@
 :: RUN DEVICE LINK LSL PROC
 start "" %lsl_unicorn_path%
 start "" "%lsl_gamepad_dir_path%\GamepadLSL.exe" "%lsl_gamepad_dir_path%\GamepadLSL.cfg"
-start "Experiment" cmd /C "%py_path% %exp_script_path%"
+start "Experiment" cmd /C "%py_path% %exp_script_path% 'config/lr_finger/exp_me_l_r_lr.json'"
 
 @echo #######################################
 @echo Link all the devices then press Enter

@@ -1,5 +1,6 @@
 import sys
 import hashlib
+import pygsheets
 
 
 def gen_participant_id():
@@ -31,5 +32,12 @@ if __name__ == '__main__':
         participant_id = gen_participant_id()
         cant_get_it_right = participant_id is None or input('Filled correctly (y/n): ').lower() != 'y'
     
-    print(f'Copy participant ID to the Experiments table: {participant_id}\n')
-    # input('Press Enter when done')
+    # session id generator
+    key_path = 'keys\\experiment-377414-94e458f24082.json'
+    gc = pygsheets.authorize(service_account_file=key_path)
+    sheet = gc.open('Experiments')
+    experiment_sheet = sheet[0]
+    number_of_occurrences = len(experiment_sheet.find(participant_id))
+    
+    print(f'Participant ID: {participant_id}\n')
+    print(f'Session ID:     S{number_of_occurrences + 1:03d}')

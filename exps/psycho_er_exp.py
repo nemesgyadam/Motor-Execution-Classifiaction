@@ -4,6 +4,7 @@ prefs.hardware['audioLib'] = ['PTB']  # lowest latency audio lib
 prefs.hardware['audioLatencyMode'] = 3  # real-time af
 print('PsychoPy preferences:\n', prefs)
 
+import sys
 import json
 from datetime import datetime
 import numpy as np
@@ -47,7 +48,7 @@ def fire_event(win: visual.Window, lsl_outlet: StreamOutlet, vis=None, tone=None
 def experiment():
 
     # load cfg
-    exp_cfg_path = 'config/lr_finger/exp_me_l_r_lr.json'
+    exp_cfg_path = sys.argv[1] if len(sys.argv) > 1 else 'config/lr_finger/exp_me_l_r_lr.json'
     exp_name = exp_cfg_path[exp_cfg_path.rfind('/') + 1:exp_cfg_path.rfind('.')]
     with open(exp_cfg_path, 'rt') as f:
         exp_cfg = json.load(f)
@@ -75,7 +76,7 @@ def experiment():
     core.wait(exp_cfg['cushion-time'])
 
     # init window
-    win = visual.Window((1920, 1080), screen=0, viewPos=(.5, .5), units='pix', fullscr=True, allowGUI=False, color='#cccccc')  # TODO hide talca pls
+    win = visual.Window((1920, 1080), screen=0, viewPos=(.5, .5), units='pix', fullscr=True, allowGUI=False, color='#aaaaaa')  # TODO hide talca pls
 
     # load stims
     event_stims = {ev_name: load_event(win, exp_cfg['stim_dir'], ev, ev_name) for ev_name, ev in exp_cfg['events'].items()}
