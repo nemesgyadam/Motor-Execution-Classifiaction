@@ -22,9 +22,9 @@
         "eyes-move-beg": {"marker": 103, "txt": "Move the eyes around randomly looking at objects"},
         "eyes-move-end": {"marker": 203, "txt": "Ok you can stop now"},
         "trials-beg": {"txt": "Trials beginning now"},
-        "trials-instruct-1": {"txt": "Semmi fÃ¶lÃ¶sleges mozdulat, csak a mutatÃ³ ujjaidat kell mozgasd majd!\nHelyezkedj el egy kÃ©nyelmes pozÃ­ciÃ³ba; fejedet vagy felsÅ‘testedet kÃ©rlek ne mozgasd a mÃ©rÃ©s sorÃ¡n, lazÃ­tsd el az izmaidat.\nFolyamatosan a kÃ©pernyÅ‘ kÃ¶zepÃ©t nÃ©zd!"},
+        "trials-instruct-1": {"txt": "Semmi fölösleges mozdulat, csak a mutató ujjaidat kell mozgasd majd!\nHelyezkedj el egy kényelmes pozícióba; fejedet vagy fels?testedet kérlek ne mozgasd a mérés során, lazítsd el az izmaidat.\nFolyamatosan a képerny? közepét nézd!"},
         "trials-instruct-2": {"img": "stim_imgs/arrows/symbol_instructions.png"},
-        "trials-instruct-3": {"txt": "A kontrollernek a megfelelÅ‘ ravaszÃ¡t addig tartsd lenyomva ameddig az arra utasÃ­tÃ³ kÃ©p a kijelzÅ‘n lÃ¡thatÃ³!\nMikor a kÃ©p eltÅ±nik, engedd el a ravaszt (ravaszokat) egy hatÃ¡rozott mozdulattal.\nHa Ãºgy Ã©rzed nem tudsz fÃ³kuszÃ¡lni, szÃ³lj! Ne aggÃ³dj ha elrontod, csak folytasd tovÃ¡bb."},
+        "trials-instruct-3": {"txt": "A kontrollernek a megfelel? ravaszát addig tartsd lenyomva ameddig az arra utasító kép a kijelz?n látható!\nMikor a kép elt?nik, engedd el a ravaszt (ravaszokat) egy határozott mozdulattal.\nHa úgy érzed nem tudsz fókuszálni, szólj! Ne aggódj ha elrontod, csak folytasd tovább."},
         "baseline": {"marker": 110, "img": "stim_imgs/arrows/Fixation.png", "tone": {"value": 1000, "secs": 0.2}},
         "break": {"marker": 140, "img": "stim_imgs/arrows/Blank.png"}
     },

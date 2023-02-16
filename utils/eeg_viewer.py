@@ -9,6 +9,7 @@ from typing import List, Callable
 from collections import deque
 import matplotlib.pylab as pylab
 import mne
+import warnings
 
 
 # Basic parameters for the plotting window
@@ -54,6 +55,8 @@ class DataInlet(Inlet):
         super().__init__(info)
         self.static_offset = static_offset
         self.anal_stream = anal_stream
+
+        self.channel_to_keep = 8  # TODO clean this fucking module, have separate classes for eeg and gamepad, then have ability to remove channels if wanted...
 
         # calculate the size for our buffer, i.e. two times the displayed data
         bufsize = (2 * math.ceil(info.nominal_srate() * plot_duration), info.channel_count())
@@ -122,9 +125,12 @@ class MarkerInlet(Inlet):
 class UnicornStreamAnal:
 
     # TODO check if ref electrode in signals, subtract it
-    # TODO print trial number or in exp script
 
-    # TODO analyze xdf files and see if signal drops are present (consecutive signals w/ same value)
+    # TODO kepet, valaszd el csikkal, plusz faszom leiras
+    # TODO self.device.StartAcquisition(self.testsignale_enabled)
+    #   TODO analyze xdf files and see if signal drops are present (consecutive signals w/ same value)
+    #   TODO quantification clarification - online or above..
+    #   TODO jitter check
 
     class cmdcol:
         HEADER = '\033[95m'
@@ -162,7 +168,9 @@ class UnicornStreamAnal:
 
     def _is_clean(self, x, y):  # per channel
         filt_y = np.convolve(y, self.clean_filter, 'same')
-        filt_y = mne.filter.notch_filter(filt_y, self.sampling_freq, [50, 60], verbose=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            filt_y = mne.filter.notch_filter(filt_y, self.sampling_freq, [50, 100], verbose=False, method='fir')#, fir_design='firwin', filter_length='6s')
         last_1_sec = filt_y[-self.sampling_freq:]
         return np.all((self.clean_rng[0] < last_1_sec) & (last_1_sec < self.clean_rng[1]))
 
@@ -208,7 +216,7 @@ class UnicornStreamAnal:
 
             min_maxes = {xyi + 1: (round(y.min(), 2), round(y.max(), 2)) for xyi, (x, y) in enumerate(xy)}
 
-            os.system('cls')
+            # os.system('cls')
             print(ascii_print)
             print(f'Samples: {nsamples}, {nsamples / self.sampling_freq:.2f} '
                   f'sec | mean v: ({mean_min_y:.2f}, {mean_max_y:.2f}) |'

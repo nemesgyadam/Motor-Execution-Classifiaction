@@ -12,3 +12,4 @@ pyqtgraph
 psychopy
 psychtoolbox
 pylsl
+pyxdf

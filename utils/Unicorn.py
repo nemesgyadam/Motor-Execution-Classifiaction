@@ -34,13 +34,13 @@ EEG_channels = list(
 
 
 class UnicornWrapper:
-    def __init__(self):
+    def __init__(self, test_signal=False):
         """
         Initialize the Unicorn device.
         And connect to it.
         """
         self.frame_length = 25  # value 1 and 25 acquired per acquisition cycle.
-        self.testsignale_enabled = False
+        self.testsignale_enabled = test_signal
 
         self.select_device()
         self.connect()
@@ -204,7 +204,9 @@ class UnicornWrapper:
         """
         Get the complete data from the Arc device.
         """
-        return np.hstack(self.session_buffer)
+        ret = np.hstack(self.session_buffer) if len(self.session_buffer) > 0 else np.array([])
+        self.session_buffer = []
+        return ret
 
     def release(self):
         """

@@ -39,5 +39,5 @@ if __name__ == '__main__':
     experiment_sheet = sheet[0]
     number_of_occurrences = len(experiment_sheet.find(participant_id))
     
-    print(f'Participant ID: {participant_id}\n')
-    print(f'Session ID:     S{number_of_occurrences + 1:03d}')
+    print(f'\nParticipant ID: {participant_id}')
+    print(f'Session ID:     S{number_of_occurrences + 1:03d}\n')

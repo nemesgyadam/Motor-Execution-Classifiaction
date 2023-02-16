@@ -5,6 +5,9 @@
 @set exp_script_path="c:\wut\asura\Motor-Execution-Classifiaction\exps\psycho_er_exp.py"
 @set pid_script_path="c:\wut\asura\Motor-Execution-Classifiaction\utils\gen_participant_id.py"
 
+@set cfg_path="c:/wut/asura/Motor-Execution-Classifiaction/config/lr_finger/exp_me_l_r_lr.json"
+@set cfg_path_dot="c:/wut/asura/Motor-Execution-Classifiaction/config/lr_finger/exp_me_l_r_lr_stim-w-dots.json"
+
 @set lsl_labrec_path="c:\wut\asura\labstreaminglayer\Apps\LabRecorder\LabRecorder.exe"
 @set lsl_labrec_cfg_path="c:\wut\asura\labstreaminglayer\Apps\LabRecorder\LabRecorder.cfg"
 
@@ -30,7 +33,7 @@
 :: RUN DEVICE LINK LSL PROC
 start "" %lsl_unicorn_path%
 start "" "%lsl_gamepad_dir_path%\GamepadLSL.exe" "%lsl_gamepad_dir_path%\GamepadLSL.cfg"
-start "Experiment" cmd /C "%py_path% %exp_script_path% 'config/lr_finger/exp_me_l_r_lr.json'"
+start "Experiment" cmd /C "%py_path% %exp_script_path% %cfg_path_dot%"
 
 @echo #######################################
 @echo Link all the devices then press Enter

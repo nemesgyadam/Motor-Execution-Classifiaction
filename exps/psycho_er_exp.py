@@ -62,6 +62,7 @@ def experiment():
     log_file = logging.LogFile(log_path, level=logging.INFO, filemode='w')
     cfg_json_str = json.dumps(exp_cfg)
     logging.log(f'CFG:{hashlib.md5(cfg_json_str.encode()).hexdigest()[:8]}:{cfg_json_str}', logging.INFO)
+    print('saving logs to:', log_path)
 
     # set up trials
     input('\n#######################################\n'
@@ -132,6 +133,7 @@ def experiment():
     core.wait(2 * exp_cfg['cushion-time'])
 
     for trial_i in range(ntrials):
+        print(f'{trial_i} trial begins')
 
         # baseline
         fire_event(win, lsl_outlet, *event_stims['baseline'])
