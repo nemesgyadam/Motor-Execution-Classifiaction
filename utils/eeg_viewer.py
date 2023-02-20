@@ -124,13 +124,7 @@ class MarkerInlet(Inlet):
 
 class UnicornStreamAnal:
 
-    # TODO check if ref electrode in signals, subtract it
-
-    # TODO kepet, valaszd el csikkal, plusz faszom leiras
-    # TODO self.device.StartAcquisition(self.testsignale_enabled)
-    #   TODO analyze xdf files and see if signal drops are present (consecutive signals w/ same value)
-    #   TODO quantification clarification - online or above..
-    #   TODO jitter check
+    # TODO jitter check
 
     class cmdcol:
         HEADER = '\033[95m'
@@ -165,6 +159,9 @@ class UnicornStreamAnal:
         self.ndots = (self.ascii_art == '.').sum()
 
         self.clean_filter = mne.filter.create_filter(None, self.sampling_freq, l_freq=1, h_freq=30, verbose=False)
+
+
+    # TODO show filtered signals in viewer
 
     def _is_clean(self, x, y):  # per channel
         filt_y = np.convolve(y, self.clean_filter, 'same')

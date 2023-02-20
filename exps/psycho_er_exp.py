@@ -4,7 +4,7 @@ prefs.hardware['audioLib'] = ['PTB']  # lowest latency audio lib
 prefs.hardware['audioLatencyMode'] = 3  # real-time af
 print('PsychoPy preferences:\n', prefs)
 
-import sys
+import sys, os
 import json
 from datetime import datetime
 import numpy as np
@@ -48,7 +48,7 @@ def fire_event(win: visual.Window, lsl_outlet: StreamOutlet, vis=None, tone=None
 def experiment():
 
     # load cfg
-    exp_cfg_path = sys.argv[1] if len(sys.argv) > 1 else 'config/lr_finger/exp_me_l_r_lr.json'
+    exp_cfg_path = sys.argv[1] if len(sys.argv) > 1 else 'config/lr_finger/exp_me_l_r_lr_practice.json'  # 'config/lr_finger/exp_me_l_r_lr_stim-w-dots.json'
     exp_name = exp_cfg_path[exp_cfg_path.rfind('/') + 1:exp_cfg_path.rfind('.')]
     with open(exp_cfg_path, 'rt') as f:
         exp_cfg = json.load(f)
@@ -58,6 +58,7 @@ def experiment():
     lsl_outlet = StreamOutlet(lsl_info)
 
     # setup psychopy logging
+    os.makedirs('logs', exist_ok=True)
     log_path = f'logs/{exp_name}_{datetime.now().strftime("%Y-%m-%d_%H-%M")}.log'
     log_file = logging.LogFile(log_path, level=logging.INFO, filemode='w')
     cfg_json_str = json.dumps(exp_cfg)

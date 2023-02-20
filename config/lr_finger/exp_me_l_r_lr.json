@@ -13,7 +13,7 @@
     "events": {
         "session-beg": {"marker": 100, "txt": "Session started"},
         "welcome": {"txt": "Welcome! GLHF!"},
-        "welcome-instruct": {"txt": "Semmi f?l?sleges mozdulat!\nHelyezkedj el egy k?nyelmes poz?ci?ba; fejedet vagy fels?testedet k?rlek ne mozgasd a m?r?s sor?n, laz?tsd el az izmaidat.\nFolyamatosan a k?perny? k?zep?t n?zd!"},
+        "welcome-instruct": {"txt": "Semmi fölösleges mozdulat!\nHelyezkedj el egy kényelmes pozícióba; fejedet vagy felsõtestedet kérlek ne mozgasd a mérés során, lazítsd el az izmaidat.\nFolyamatosan a képernyõ közepét nézd!"},
         "session-end": {"marker": 200, "txt": "Session is done; good job!"},
         "eyes-open-beg": {"marker": 101, "txt": "Open-eye measurement started; focus on this:\n\nX"},
         "eyes-open-end": {"marker": 201, "txt": "Close eyes now", "audio": "audio/close_your_eyes.flac"},
@@ -22,10 +22,10 @@
         "eyes-move-beg": {"marker": 103, "txt": "Move the eyes around randomly looking at objects"},
         "eyes-move-end": {"marker": 203, "txt": "Ok you can stop now"},
         "trials-beg": {"txt": "Trials beginning now"},
-        "trials-instruct-1": {"txt": "Semmi f?l?sleges mozdulat, csak a mutat? ujjaidat kell mozgasd majd!\nHelyezkedj el egy k?nyelmes poz?ci?ba; fejedet vagy fels?testedet k?rlek ne mozgasd a m?r?s sor?n, laz?tsd el az izmaidat.\nFolyamatosan a k?perny? k?zep?t n?zd!"},
+        "trials-instruct-1": {"txt": "Semmi fölösleges mozdulat, csak a mutató ujjaidat kell mozgasd majd!\nHelyezkedj el egy kényelmes pozícióba; fejedet vagy felsõtestedet kérlek ne mozgasd a mérés során, lazítsd el az izmaidat.\nFolyamatosan a képernyõ közepét nézd!"},
         "trials-instruct-2": {"img": "stim_imgs/arrows/symbol_instructions.png"},
-        "trials-instruct-3": {"txt": "A kontrollernek a megfelel? ravasz?t addig tartsd lenyomva ameddig az arra utas?t? k?p a kijelz?n l?that?!\nMikor a k?p elt?nik, engedd el a ravaszt (ravaszokat) egy hat?rozott mozdulattal.\nHa ?gy ?rzed nem tudsz f?kusz?lni, sz?lj! Ne agg?dj ha elrontod, csak folytasd tov?bb."},
-        "baseline": {"marker": 110, "img": "stim_imgs/arrows/Fixation.png", "tone": {"value": 1000, "secs": 0.2}},
+        "trials-instruct-3": {"txt": "A kontrollernek a megfelelõ ravaszát addig tartsd lenyomva ameddig az arra utasító kép a kijelzõn látható!\nMikor a kép eltûnik, engedd el a ravaszt (ravaszokat) egy határozott mozdulattal.\nHa úgy érzed nem tudsz fókuszálni, szólj! Ne aggódj ha elrontod, csak folytasd tovább."},
+        "baseline": {"marker": 110, "img": "stim_imgs/arrows/Fixation-dot.png", "tone": {"value": 1000, "secs": 0.2}},
         "break": {"marker": 140, "img": "stim_imgs/arrows/Blank.png"}
     },
     "tasks": {

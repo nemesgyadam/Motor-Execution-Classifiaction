@@ -33,11 +33,15 @@ if __name__ == '__main__':
         cant_get_it_right = participant_id is None or input('Filled correctly (y/n): ').lower() != 'y'
     
     # session id generator
-    key_path = 'keys\\experiment-377414-94e458f24082.json'
-    gc = pygsheets.authorize(service_account_file=key_path)
-    sheet = gc.open('Experiments')
-    experiment_sheet = sheet[0]
-    number_of_occurrences = len(experiment_sheet.find(participant_id))
+    number_of_occurrences = 0
+    try:
+        key_path = 'keys\\experiment-377414-94e458f24082.json'
+        gc = pygsheets.authorize(service_account_file=key_path)
+        sheet = gc.open('Experiments')
+        experiment_sheet = sheet[0]
+        number_of_occurrences = len(experiment_sheet.find(participant_id))
+    except:
+        print('no connection lol')
     
     print(f'\nParticipant ID: {participant_id}')
     print(f'Session ID:     S{number_of_occurrences + 1:03d}\n')
