@@ -117,7 +117,8 @@ def experiment():
     # trials
     logging.log(f'Trials begins', logging.INFO)
     task_types = list(exp_cfg['tasks'].keys())
-    rnd_tasks = np.random.randint(0, len(task_types), ntrials)
+    rnd_tasks = np.random.permutation(np.concatenate([np.repeat(i, ntrials // len(task_types) + 1)
+                                                      for i in range(len(task_types))]))[:ntrials]
     rnd_task_dur = np.random.uniform(*event_durations['task'], ntrials)
     rnd_break_dur = np.random.uniform(*event_durations['break'], ntrials)
 
