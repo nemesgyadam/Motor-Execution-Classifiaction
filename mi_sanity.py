@@ -149,18 +149,28 @@ def gen_erp_plots(epochs, ds_name, out_folder):
     plt.close('all')
 
 
-def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=True, comp_tf_clusters=True):
+def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=True, comp_tf_clusters=True,
+                   channels=('C3', 'C1', 'C2', 'C4'), baseline=None, verbose=False):
     
     ### ERDS: https://mne.tools/dev/auto_examples/time_frequency/time_frequency_erds.html
     tmin, tmax = -1, None
     vmin, vmax = -1, 1.5
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
-    baseline = (-1, 0)
-    epochs = epochs.pick(['C3', 'C1', 'C2', 'C4'])
-
-    tfr = tfr_multitaper(epochs, freqs=freqs, n_cycles=freqs, use_fft=True,
-                         return_itc=False, average=False)#, decim=2)
-    tfr.crop(tmin, tmax).apply_baseline(baseline, mode='percent')
+    epochs = epochs.pick(channels)
+    
+    if isinstance(epochs, mne.Epochs):
+        if baseline is not None:
+            epochs.apply_baseline(baseline, verbose=verbose)
+        tfr = tfr_multitaper(epochs, freqs=freqs, n_cycles=freqs, use_fft=True,
+                             return_itc=False, average=False, verbose=verbose)#, decim=2)
+    elif isinstance(epochs, mne.EpochsTFR):
+        tfr = epochs
+    else:
+        raise ValueError('epochs must be type Epochs or EpochsTFR')
+    
+    tfr.crop(tmin, tmax)
+    if baseline is not None:
+        tfr.apply_baseline(baseline, mode='percent', verbose=verbose)
 
     kwargs = dict(n_permutations=100, step_down_p=0.05, seed=1,
                   buffer_size=None, out_type='mask')  # for cluster test
@@ -169,8 +179,9 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
         for event in event_id.keys():
             # select desired epochs for visualization
             tfr_ev = tfr[event]
-            fig, axes = plt.subplots(1, 5, figsize=(14, 4),
-                                    gridspec_kw={"width_ratios": [10, 10, 10, 10, 1]})
+            fig, axes = plt.subplots(1, len(channels) + 1, figsize=(14, 4),
+                                    gridspec_kw={"width_ratios": [10] * len(channels) + [1]})
+            
             for ch, ax in enumerate(axes[:-1]):  # for each channel
 
                 if comp_tf_clusters:
@@ -202,6 +213,7 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
                     ax.set_yticklabels("")
             fig.colorbar(axes[0].images[-1], cax=axes[-1]).ax.set_yscale("linear")
             fig.suptitle(f"ERDS ({event})")
+            os.makedirs(out_folder, exist_ok=True)
             fig.savefig(f'{out_folder}/{ds_name}_erds_{event}.png')
         
         # plt.show(block=False)
@@ -226,7 +238,7 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
     df['band'] = df['band'].cat.remove_unused_categories()
 
     # Order channels for plotting:
-    df['channel'] = df['channel'].cat.reorder_categories(('C3', 'C1', 'C2', 'C4'), ordered=True)
+    df['channel'] = df['channel'].cat.reorder_categories(channels, ordered=True)
 
     g = sns.FacetGrid(df, row='band', col='channel', margin_titles=True)
     g.map(sns.lineplot, 'time', 'value', 'condition', n_boot=10)
@@ -246,96 +258,98 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
 
 # doc: https://bbci.de/competition/iv/desc_2a.pdf
 
-base_dir = '../bcidatasetIV2a'
-datasets = sorted(glob(f'{base_dir}/*T.npz'))
 
-channel_names = ['Fz'] + list(map(str, range(2, 7, 1))) + ['C5', 'C3', 'C1', 'Cz', 'C2', 'C4', 'C6'] + list(map(str, range(14, 20))) + ['Pz', '21', '22']
-drop_chans = [c for c in channel_names if c not in ['Cz', 'Fz', 'Pz'] + [f'C{i}' for i in range(1, 7)]]
-info = mne.create_info(channel_names, 250, 'eeg')
-montage = mne.channels.make_standard_montage('standard_1020')
-baseline_t = -2.5  # sets tmin for epochs, -2 puts start of cue at 0, -3 puts start of MI at 0
-out_folder = 'out/cue-mi-mid_start'
-do_per_subject_comp = False
-os.makedirs(out_folder, exist_ok=True)
+if __name__ == '__main__':
+    base_dir = '../bcidatasetIV2a'
+    datasets = sorted(glob(f'{base_dir}/*T.npz'))
 
-all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks = [], [], [], [], [], []
-for ds in datasets:
-    print(ds)
-    ds_name = os.path.basename(ds)
-    ds_name = ds_name[:ds_name.rfind('.')]
+    channel_names = ['Fz'] + list(map(str, range(2, 7, 1))) + ['C5', 'C3', 'C1', 'Cz', 'C2', 'C4', 'C6'] + list(map(str, range(14, 20))) + ['Pz', '21', '22']
+    drop_chans = [c for c in channel_names if c not in ['Cz', 'Fz', 'Pz'] + [f'C{i}' for i in range(1, 7)]]
+    info = mne.create_info(channel_names, 250, 'eeg')
+    montage = mne.channels.make_standard_montage('standard_1020')
+    baseline_t = -2.5  # sets tmin for epochs, -2 puts start of cue at 0, -3 puts start of MI at 0
+    out_folder = 'out/cue-mi-mid_start'
+    do_per_subject_comp = False
+    os.makedirs(out_folder, exist_ok=True)
 
-    datasetA1 = MotorImageryDataset(ds)
-    trials, classes, baselines, cues, mis, breaks = datasetA1.get_trials_from_channel()
-    trials, classes, baselines, cues, mis, breaks = map(np.asarray, [trials, classes, baselines, cues, mis, breaks])
-    # electrodes referenced, sampled 250Hz, bandpass 0.5 - 100Hz, 50 Hz notch filter
-    
-    # manual baseline correction
-    # trials, baselines, cues, mis, breaks = map(lambda eeg: baseline_corr(eeg, baselines), [trials, baselines, cues, mis, breaks])
+    all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks = [], [], [], [], [], []
+    for ds in datasets:
+        print(ds)
+        ds_name = os.path.basename(ds)
+        ds_name = ds_name[:ds_name.rfind('.')]
 
-    # add to cross-subject data
-    for s, z in zip([trials, classes, baselines, cues, mis, breaks], [all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks]):
-        z.append(s)
+        datasetA1 = MotorImageryDataset(ds)
+        trials, classes, baselines, cues, mis, breaks = datasetA1.get_trials_from_channel()
+        trials, classes, baselines, cues, mis, breaks = map(np.asarray, [trials, classes, baselines, cues, mis, breaks])
+        # electrodes referenced, sampled 250Hz, bandpass 0.5 - 100Hz, 50 Hz notch filter
+        
+        # manual baseline correction
+        # trials, baselines, cues, mis, breaks = map(lambda eeg: baseline_corr(eeg, baselines), [trials, baselines, cues, mis, breaks])
 
-    if do_per_subject_comp:
-        # events
-        n_epochs = trials.shape[0]
-        event_id = {e: i for i, e in enumerate(np.unique(classes))}
-        events = np.asarray([event_id[c] for c in classes])
-        # https://github.com/mne-tools/mne-python/blob/96a4bc2e928043a16ab23682fc818cf0a3e78aef/mne/utils/numerics.py#L198
-        events = np.c_[np.arange(n_epochs), np.zeros(n_epochs, int), events]
+        # add to cross-subject data
+        for s, z in zip([trials, classes, baselines, cues, mis, breaks], [all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks]):
+            z.append(s)
 
-        mi_epochs = mne.EpochsArray(mis, info=info, events=events, event_id=event_id)
-        cue_epochs = mne.EpochsArray(cues, info=info, events=events, event_id=event_id)
-        cue_n_mi_epochs = mne.EpochsArray(np.concatenate([cues, mis], axis=-1), info=info, events=events, event_id=event_id)
-        bl_n_cue_epochs = mne.EpochsArray(np.concatenate([baselines, cues], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
-        bl_n_cue_n_mi_epochs = mne.EpochsArray(np.concatenate([baselines, cues, mis], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
+        if do_per_subject_comp:
+            # events
+            n_epochs = trials.shape[0]
+            event_id = {e: i for i, e in enumerate(np.unique(classes))}
+            events = np.asarray([event_id[c] for c in classes])
+            # https://github.com/mne-tools/mne-python/blob/96a4bc2e928043a16ab23682fc818cf0a3e78aef/mne/utils/numerics.py#L198
+            events = np.c_[np.arange(n_epochs), np.zeros(n_epochs, int), events]
 
-        # remove channels
-        mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs = map(lambda eeg: eeg.drop_channels(drop_chans),
-            [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs])
+            mi_epochs = mne.EpochsArray(mis, info=info, events=events, event_id=event_id)
+            cue_epochs = mne.EpochsArray(cues, info=info, events=events, event_id=event_id)
+            cue_n_mi_epochs = mne.EpochsArray(np.concatenate([cues, mis], axis=-1), info=info, events=events, event_id=event_id)
+            bl_n_cue_epochs = mne.EpochsArray(np.concatenate([baselines, cues], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
+            bl_n_cue_n_mi_epochs = mne.EpochsArray(np.concatenate([baselines, cues, mis], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
 
-        # set montage
-        mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs = map(lambda eeg: eeg.set_montage(montage),
-            [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs])
+            # remove channels
+            mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs = map(lambda eeg: eeg.drop_channels(drop_chans),
+                [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs])
 
-        # select epochs to use and create plots
-        epochs = bl_n_cue_n_mi_epochs
-        gen_erp_plots(epochs, ds_name, out_folder)
-        gen_erds_plots(epochs, f'{ds_name}_mu', event_id, out_folder)
-        gen_erds_plots(epochs, f'{ds_name}_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5))
-        gen_erds_plots(epochs, f'{ds_name}_smr', event_id, out_folder, freqs=np.arange(13, 15, 0.1))
-        gen_erds_plots(epochs, f'{ds_name}_allf', event_id, out_folder, freqs=np.arange(7, 40, 0.5))
+            # set montage
+            mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs = map(lambda eeg: eeg.set_montage(montage),
+                [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs])
+
+            # select epochs to use and create plots
+            epochs = bl_n_cue_n_mi_epochs
+            gen_erp_plots(epochs, ds_name, out_folder)
+            gen_erds_plots(epochs, f'{ds_name}_mu', event_id, out_folder, freqs=np.arange(7, 13, 0.1))
+            gen_erds_plots(epochs, f'{ds_name}_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5))
+            gen_erds_plots(epochs, f'{ds_name}_smr', event_id, out_folder, freqs=np.arange(13, 15, 0.1))
+            gen_erds_plots(epochs, f'{ds_name}_allf', event_id, out_folder, freqs=np.arange(7, 40, 0.5))
 
 
-### run analysis on all epochs from all subjects
-all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks = \
-    map(lambda x: np.concatenate(x, axis=0), [all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks])
+    ### run analysis on all epochs from all subjects
+    all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks = \
+        map(lambda x: np.concatenate(x, axis=0), [all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks])
 
-# events
-n_epochs = trials.shape[0]
-event_id = {e: i for i, e in enumerate(np.unique(classes))}
-events = np.asarray([event_id[c] for c in classes])
-events = np.c_[np.arange(n_epochs), np.zeros(n_epochs, int), events]
+    # events
+    n_epochs = trials.shape[0]
+    event_id = {e: i for i, e in enumerate(np.unique(classes))}
+    events = np.asarray([event_id[c] for c in classes])
+    events = np.c_[np.arange(n_epochs), np.zeros(n_epochs, int), events]
 
-# create cross-subject epochs
-mi_epochs = mne.EpochsArray(mis, info=info, events=events, event_id=event_id)
-cue_epochs = mne.EpochsArray(cues, info=info, events=events, event_id=event_id)
-cue_n_mi_epochs = mne.EpochsArray(np.concatenate([cues, mis], axis=-1), info=info, events=events, event_id=event_id)
-bl_n_cue_epochs = mne.EpochsArray(np.concatenate([baselines, cues], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
-bl_n_cue_n_mi_epochs = mne.EpochsArray(np.concatenate([baselines, cues, mis], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
+    # create cross-subject epochs
+    mi_epochs = mne.EpochsArray(mis, info=info, events=events, event_id=event_id)
+    cue_epochs = mne.EpochsArray(cues, info=info, events=events, event_id=event_id)
+    cue_n_mi_epochs = mne.EpochsArray(np.concatenate([cues, mis], axis=-1), info=info, events=events, event_id=event_id)
+    bl_n_cue_epochs = mne.EpochsArray(np.concatenate([baselines, cues], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
+    bl_n_cue_n_mi_epochs = mne.EpochsArray(np.concatenate([baselines, cues, mis], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
 
-epochs = bl_n_cue_n_mi_epochs
+    epochs = bl_n_cue_n_mi_epochs
 
-# remove channels
-mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs = map(lambda eeg: eeg.drop_channels(drop_chans),
-    [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs])
+    # remove channels
+    mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs = map(lambda eeg: eeg.drop_channels(drop_chans),
+        [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs])
 
-# set montage
-mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs = map(lambda eeg: eeg.set_montage(montage),
-    [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs])
+    # set montage
+    mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs = map(lambda eeg: eeg.set_montage(montage),
+        [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs])
 
-# gen_erp_plots(epochs, 'combined', out_folder)
-gen_erds_plots(epochs, 'combined_mu', event_id, out_folder, freqs=np.arange(8, 13, 0.1))
-gen_erds_plots(epochs, 'combined_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5))
-gen_erds_plots(epochs, 'combined_smr', event_id, out_folder, freqs=np.arange(13.1, 15.1, 0.1))
-gen_erds_plots(epochs, 'combined_allf', event_id, out_folder, freqs=np.arange(7.5, 40.5, 0.5))
+    # gen_erp_plots(epochs, 'combined', out_folder)
+    gen_erds_plots(epochs, 'combined_mu', event_id, out_folder, freqs=np.arange(8, 13, 0.1))
+    gen_erds_plots(epochs, 'combined_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5))
+    gen_erds_plots(epochs, 'combined_smr', event_id, out_folder, freqs=np.arange(13.1, 15.1, 0.1))
+    gen_erds_plots(epochs, 'combined_allf', event_id, out_folder, freqs=np.arange(7.5, 40.5, 0.5))
