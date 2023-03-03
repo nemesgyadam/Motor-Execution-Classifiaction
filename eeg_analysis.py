@@ -364,24 +364,7 @@ if __name__ == '__main__':
     streams_path = f'out/{subject}/{subject}_streams.h5'
     os.makedirs(f'out/{subject}', exist_ok=True)
     
-    if True:  #TODO not os.path.isfile(epochs_on_task_path):
-        
-        # # too high memory use
-        # all_epochs_on_task = mne.concatenate_epochs([s['epochs_on_task'] for s in sessions], verbose=False)
-        # all_tfr_epochs_on_task = np.concatenate([s['tfr_epochs_on_task']._data for s in sessions], axis=0)
-        # all_tfr_epochs_on_task = mne.time_frequency.EpochsTFR(sessions[0]['eeg_info'], all_tfr_epochs_on_task,
-        #                                                       times=sessions[0]['tfr_epochs_on_task'].times, freqs=freqs,
-        #                                                       events=all_epochs_on_task.events, method=tfr_mode)
-        # 
-        # all_epochs_on_task = np.concatenate([s['epochs_on_task']._data for s in sessions], axis=0)
-        # all_tfr_epochs_on_task = np.concatenate([s['tfr_epochs_on_task']._data for s in sessions], axis=0)
-        
-        # # save stuff - ofc this asscrapshitstain lib does not work w/ pickle
-        # os.makedirs(f'out/{subject}', exist_ok=True)
-        # all_epochs_on_task.save(f'out/{subject}/epochs_on_task-epo.fif', overwrite=True)
-        # all_tfr_epochs_on_task.save(f'out/{subject}/epochs_on_task-tfr.h5', overwrite=True)
-        # with open(all_data_path, 'wb') as f:
-        #     pickle.dump(sessions, f)
+    if not os.path.isfile(epochs_on_task_path):
         
         # prepare h5 dataset: combined raw, epochs, gamepad streams
         streams_data = h5py.File(streams_path, 'w')
@@ -454,4 +437,4 @@ if __name__ == '__main__':
     # gen_erds_plots(all_tfr_epochs_on_task, subject, erds_event_ids, out_folder=f'out/{subject}', freqs=freqs,
     #                 comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=None)
     
-    print(f'data loaded for subject {subject}')    
+    print(f'data loaded for subject {subject}')
