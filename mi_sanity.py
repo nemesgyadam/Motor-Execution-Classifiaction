@@ -158,12 +158,12 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     epochs = epochs.pick(channels)
     
-    if isinstance(epochs, mne.Epochs):
+    if isinstance(epochs, mne.Epochs) or isinstance(epochs, mne.EpochsArray):
         if baseline is not None:
             epochs.apply_baseline(baseline, verbose=verbose)
         tfr = tfr_multitaper(epochs, freqs=freqs, n_cycles=freqs, use_fft=True,
                              return_itc=False, average=False, verbose=verbose)#, decim=2)
-    elif isinstance(epochs, mne.EpochsTFR):
+    elif isinstance(epochs, mne.time_frequency.EpochsTFR):
         tfr = epochs
     else:
         raise ValueError('epochs must be type Epochs or EpochsTFR')

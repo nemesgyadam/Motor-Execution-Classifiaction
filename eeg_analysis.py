@@ -11,7 +11,7 @@ import json
 from mi_sanity import gen_erds_plots
 import pickle
 import h5py
-
+from glob import glob
 
 def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, new_id=None, fill_na=None, occur=True):
     """Define new events by (non)-co-occurrence of existing events.
@@ -99,7 +99,7 @@ def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, n
 
 def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_finger/exp_me_l_r_lr_stim-w-dots.json',
                     eeg_sfreq=250, gamepad_sfreq=125, bandpass_freq=(0.5, 80), notch_freq=(50, 100), tfr_mode='cwt',  # cwt | multitaper
-                    freqs=np.arange(2, 50, 0.2), n_cycles=None, tfr_baseline_mode='ratio', do_plot=False, reaction_tmax=1.,
+                    freqs=np.arange(2, 50, 0.2), n_cycles=None, tfr_baseline_mode='percent', do_plot=False, reaction_tmax=1.,
                     comp_break_epochs=False, n_jobs=4, verbose=False):
     
     print('-' * 50 +  f'\nPROCESSING: {subject}/{session:03d}\n' + '-' * 50)
@@ -114,7 +114,7 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
 
     # channel info
     shared_sfreq = max(eeg_sfreq, gamepad_sfreq)
-    eeg_ch_names = ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
+    eeg_ch_names = ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']  # unicorn
     gamepad_ch_names = ['LeftX', 'LeftY', 'RightX', 'RightY', 'L2', 'R2']
 
     # load streams from xdf
@@ -177,20 +177,20 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
     triggers_on_i  = [gamepad_i[detect_trigger_pulls( gamepad[trigger_i, :], shared_sfreq, trigger_pull_dist_t)] for trigger_i in trigger_lr_i]
     triggers_off_i = [gamepad_i[detect_trigger_pulls(-gamepad[trigger_i, :], shared_sfreq, trigger_pull_dist_t)] for trigger_i in trigger_lr_i]
 
-    # TODO check if the same number of on-off happened, pair on-offs, remove ones that can't be paired
+    # check if the same number of on-off happened, pair on-offs, remove ones that can't be paired
     print('trigger on/off times should be equal:')
     print('  L2:', triggers_on_i[0].shape[0], '==', triggers_off_i[0].shape[0])
     print('  R2:', triggers_on_i[1].shape[0], '==', triggers_off_i[1].shape[0])
 
-    # plotting commands for debugging
+    # # plotting commands for debugging
     # ti=4;plt.plot(gamepad_i, gamepad[ti, :]);plt.scatter(triggers_on_i[ti-4], gamepad[ti, triggers_on_i[ti-4]], marker='X', color='red');plt.show()
     # ti=4;plt.plot(gamepad_i, np.diff(gamepad[ti, :], append=0));plt.scatter(triggers_on_i[ti-4], np.diff(gamepad[ti, :], append=0)[triggers_on_i[ti-4]], marker='X', color='red');plt.show()
     # ti=4;plt.plot(gamepad_i, gamepad[ti, :]);plt.plot(gamepad_i, np.diff(gamepad[ti, :], append=0));plt.scatter(triggers_on_i[ti-4], np.diff(gamepad[ti, :], append=0)[triggers_on_i[ti-4]], marker='X', color='red');plt.show()
 
+    # events data structure: n_events x 3: [[sample_i, 0, marker]...]
     trigger_on_markers = [np.repeat(ev_mark, len(i)) for i, ev_mark in zip(triggers_on_i, trigger_on_event_markers)]
     trigger_off_markers = [np.repeat(ev_mark, len(i)) for i, ev_mark in zip(triggers_off_i, trigger_off_event_markers)]
 
-    # events data structure: n_events x 3: [[sample_i, 0, marker]...]
     trigger_i = np.concatenate(triggers_on_i + triggers_off_i)
     trigger_markers = np.concatenate(trigger_on_markers + trigger_off_markers)
     gamepad_lr_events = np.stack([trigger_i, np.zeros_like(trigger_i), trigger_markers], axis=1)
@@ -206,7 +206,7 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
                   **{f'{trig}-off': mark for mark, trig in zip(trigger_off_event_markers, ['L2', 'R2'])}}
     
     # preprocess numpy eeg, before encaptulating into mne raw
-    # common median referencing - substract compute median at each timepoint
+    # common median referencing - substract median at each timepoint
     eeg -= np.median(eeg, axis=0)
     
     # create raw mne eeg array and add events
@@ -269,9 +269,9 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
         plt.title('button press delay')
         plt.hist(left_success[1], bins=20, label='left', alpha=.5)
         plt.hist(right_success[1], bins=0, label='right', alpha=.5)
-        # plt.hist(lr_success[1], bins=10, label='left-right', alpha=.5)  # define_target_events2 fucks lags up
+        # plt.hist(lr_success[1], bins=10, label='left-right', alpha=.5)  # TODO implement define_target_events2() proper lag array handling
         plt.legend()
-        plt.show(block=False)
+        plt.savefig(f'out/{subject}/btn_press_delay_{rec_name}.png')
     
     # do the same for the break event
     break_marker = exp_cfg['events']['break']['marker']
@@ -287,11 +287,23 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
     print('num of events successful/originally:',
           {name: f'{nsucc}/{nold}' for name, nold, nsucc in zip(['left', 'right', 'left-right', 'nothing'], num_old, num_succ)})
     
+    
+    
+    
+    
+    
+    # TODO break function in 2 pieces from here; return filtered raw and meta data, leave epoching to another func
+    
+    
+    
+    
+    
+    
     # epoching
     # TODO add btn press epochs
     baseline = (None, 0)
-    task_event_ids = [left_success_marker, right_success_marker, lr_success_marker, nothing_success_marker]
-    break_event_id = break_success_marker
+    task_event_ids = dict(left=left_success_marker, right=right_success_marker, lr=lr_success_marker, nothing=nothing_success_marker)
+    break_event_id = dict(brk=break_success_marker)
     epochs_on_task = mne.Epochs(filt_raw_eeg, all_events, event_id=task_event_ids, baseline=baseline, verbose=verbose,
                                 tmin=-exp_cfg['event-duration']['baseline'], tmax=exp_cfg['event-duration']['task'][0])
     epochs_on_task.apply_baseline(baseline, verbose=verbose)
@@ -322,7 +334,7 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
         tfr_epochs_on_break.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     # some plots
-    erds_event_ids = {e: i for i, e in enumerate(task_event_ids)}
+    # erds_event_ids = {e: i for i, e in enumerate(task_event_ids)}
     if do_plot:
         filt_raw_eeg.plot(scalings=80, events=all_events, title='all events')
         epochs_on_task.plot(scalings=80, events=all_events, n_epochs=4, title='epochs locked on task')
@@ -338,16 +350,81 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
         epochs_on_task[event_dict['left-right']].average().plot(scalings=50, window_title='left_right_trigger')
         epochs_on_task[event_dict['nothing']].average().plot(scalings=50, window_title='no_trigger')
 
-        gen_erds_plots(epochs_on_task, rec_name, erds_event_ids, out_folder=f'out/{rec_name}/tfr_raw', freqs=freqs,
+        gen_erds_plots(epochs_on_task, rec_name, task_event_ids, out_folder=f'out/{rec_name}/tfr_raw', freqs=freqs,
                     comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=baseline)
 
-        gen_erds_plots(epochs_on_task, rec_name, erds_event_ids, out_folder=f'out/{rec_name}/tfr_clust', freqs=freqs,
+        gen_erds_plots(epochs_on_task, rec_name, task_event_ids, out_folder=f'out/{rec_name}/tfr_clust', freqs=freqs,
                     comp_time_freq=True, comp_tf_clusters=True, channels=('C3', 'Cz', 'C4'), baseline=baseline)
+    
+    if do_plot:
+        plt.close('all')
     
     return {'epochs_on_task': epochs_on_task, 'epochs_on_break': epochs_on_break,
             'tfr_epochs_on_task': tfr_epochs_on_task, 'tfr_epochs_on_break': tfr_epochs_on_break,
-            'filt_raw_eeg': filt_raw_eeg, 'gamepad': gamepad, 'erds_event_ids': erds_event_ids,
-            'events': all_events, 'event_dict': event_dict, 'eeg_info': eeg_info}
+            'filt_raw_eeg': filt_raw_eeg, 'gamepad': gamepad, #'erds_event_ids': erds_event_ids,
+            'events': all_events, 'event_dict': event_dict, 'eeg_info': eeg_info,
+            'freqs': freqs, 'on_task_times': tfr_epochs_on_task.times,
+            'task_event_ids': task_event_ids, 'break_event_id': break_event_id}
+
+
+def load_epochs_for_subject(path, epoch_type='epochs_on_task', verbose=False):
+    epoch_paths = sorted(list(glob(f'{path}/*{epoch_type}*-epo.fif')))
+    epochs = [mne.read_epochs(path, verbose=verbose) for path in epoch_paths]
+    epochs = mne.concatenate_epochs(epochs, verbose=verbose)
+    return epochs
+
+
+def process_eyes_open_closed(raw: mne.io.Raw, events: np.ndarray, info: mne.Info, do_plot=False, verbose=False,
+                             exp_cfg_path='config/lr_finger/exp_me_l_r_lr_stim-w-dots.json', n_jobs=8):
+    # experiment config
+    with open(exp_cfg_path, 'rt') as f:
+        exp_cfg = json.load(f)
+    
+    event_ids = {'open': exp_cfg['events']['eyes-open-beg']['marker'],
+                 'closed': exp_cfg['events']['eyes-closed-beg']['marker']}
+    
+    eyes_open_dur = exp_cfg['event-duration']['eyes-open']
+    eyes_closed_dur = exp_cfg['event-duration']['eyes-closed']
+    
+    # eye_epochs = mne.Epochs(raw, events, event_id=event_ids, verbose=verbose,
+                            # tmin=0, tmax=exp_cfg['event-duration']['eyes-open'])
+    
+    # crop parts out of recording
+    eyes_open_beg_i = events[events[:, 2] == event_ids['open'], 0][0]
+    eyes_open_beg_t = eyes_open_beg_i / info['sfreq']
+    
+    eyes_closed_beg_i = events[events[:, 2] == event_ids['closed'], 0][0]
+    eyes_closed_beg_t = eyes_closed_beg_i / info['sfreq']
+    
+    eyes_open = raw.copy().crop(eyes_open_beg_t, eyes_open_beg_t + eyes_open_dur, verbose=verbose)
+    eyes_closed = raw.copy().crop(eyes_closed_beg_t, eyes_closed_beg_t + eyes_closed_dur, verbose=verbose)
+    
+    if do_plot:
+        # compute psd on posterior electrodes for IAF
+        eyes_open_psd = eyes_open.compute_psd('welch', picks=['PO7', 'Oz', 'PO8'], n_jobs=n_jobs, verbose=verbose, fmax=80)
+        eyes_clossed_psd = eyes_closed.compute_psd('welch', picks=['PO7', 'Oz', 'PO8'], n_jobs=n_jobs, verbose=verbose, fmax=80)
+        difference = eyes_clossed_psd.get_data().mean(axis=0) - eyes_open_psd.get_data().mean(axis=0)
+        
+        peak, _ = find_peaks(difference, distance=200)
+        
+        fig, (ax1, ax2, ax3) = plt.subplots(nrows=3)
+        eyes_clossed_psd.plot(axes=ax1, average=True, show=False)
+        eyes_open_psd.plot(axes=ax2, average=True, show=False)
+        ax3.plot(eyes_clossed_psd.freqs, difference)
+
+        ax1.axvline(x=eyes_clossed_psd.freqs[peak], ymax=100, color='red')
+        ax2.axvline(x=eyes_clossed_psd.freqs[peak], ymax=100, color='red')#, eyes_clossed_psd.get_data().mean(axis=0)[peak])
+
+        # TODO
+
+        ax1.set_title('eyes closed')
+        ax2.set_title('eyes open')
+        ax3.set_title(f'difference: {difference.max():.2f} at {eyes_clossed_psd.freqs[peak[0]]:.2f} Hz (IAF)')
+
+        plt.show()  # TODO save
+    
+    return eyes_open, eyes_closed
+    
 
 
 if __name__ == '__main__':
@@ -358,27 +435,34 @@ if __name__ == '__main__':
     do_plot = False
     n_jobs = 4
     verbose = False
+    rerun_proc = True
     
     recordings_path = '../recordings'
-    meta_path = f'out/{subject}/meta.pckl'
-    streams_path = f'out/{subject}/{subject}_streams.h5'
-    os.makedirs(f'out/{subject}', exist_ok=True)
+    output_path = f'out/{subject}'
+    meta_path = f'{output_path}/meta.pckl'
+    streams_path = f'{output_path}/{subject}_streams.h5'
+    os.makedirs(output_path, exist_ok=True)
     
-    if not os.path.isfile(epochs_on_task_path):
+    if not os.path.isfile(streams_path) or rerun_proc:
         
         # prepare h5 dataset: combined raw, epochs, gamepad streams
         streams_data = h5py.File(streams_path, 'w')
         streams_info = {'filt_raw_eeg':       {'dtype': 'float32', 'epoch': False, 'get': lambda x: x.get_data()},
                         'epochs_on_task':     {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
                         'tfr_epochs_on_task': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
-                        'gamepad':            {'dtype': 'float16', 'epoch': False, 'get': lambda x: x}}  # i know, it got out of hand
+                        'gamepad':            {'dtype': 'float16', 'epoch': False, 'get': lambda x: x},
+                        'events':             {'dtype': 'int32', 'epoch': True, 'get': lambda x: x}}  # i know, it got out of hand
         
         # process sessions one-by-one
         num_epochs = []
-        meta_data = dict(eeg_info=None, erds_event_ids=None, event_dict=None)
+        meta_names = ['eeg_info', 'event_dict', 'freqs', 'on_task_times', 'task_event_ids', 'break_event_id']  # 'erds_event_ids'
+        meta_data = {name: None for name in meta_names}
         
         for i, sid in enumerate(session_ids):
             sess = process_session(recordings_path, subject, sid, tfr_mode=tfr_mode, n_jobs=n_jobs, do_plot=do_plot, verbose=verbose)
+            
+            # TODO run this outside of this after processing, loading processed data from 
+            process_eyes_open_closed(sess['filt_raw_eeg'], sess['events'], sess['eeg_info'], do_plot=True)
             
             sess_data = {name: info['get'](sess[name]) for name, info in streams_info.items()}
             num_epochs.append(sess_data['epochs_on_task'].shape[0])
@@ -407,15 +491,16 @@ if __name__ == '__main__':
                     streams_data.create_dataset(ds_name, dtype=info['dtype'], data=data)
 
             # store individual session files
-            raw_path = f'out/{subject}/{subject}_{sid:03d}_raw-eeg.fif'
-            epochs_path = f'out/{subject}/{subject}_{sid:03d}_epochs_on_task-epo.fif'
-            tfr_epochs_path = f'out/{subject}/{subject}_{sid:03d}_epochs_on_task-tfr.h5'
+            raw_path = f'{output_path}/{subject}_{sid:03d}_raw-eeg.fif'
+            epochs_path = f'{output_path}/{subject}_{sid:03d}_epochs_on_task-epo.fif'
+            tfr_epochs_path = f'{output_path}/{subject}_{sid:03d}_epochs_on_task-tfr.h5'
             
             sess['filt_raw_eeg'].save(raw_path, overwrite=True, verbose=verbose)
             sess['epochs_on_task'].save(epochs_path, overwrite=True, verbose=verbose)
             sess['tfr_epochs_on_task'].save(tfr_epochs_path, overwrite=True, verbose=verbose)
         
         streams_data.attrs['num_epochs'] = num_epochs
+        
         streams_data.close()
         print('h5 epoch files saved')
         
@@ -423,18 +508,29 @@ if __name__ == '__main__':
         with open(meta_path, 'wb') as f:
             pickle.dump(meta_data, f)
     
-    else:  # already computed
-        with open(all_data_path, 'rb') as f:
-            sessions = pickle.load(f)  # TODO separately save lightweight meta data
-        all_epochs_on_task = mne.read_epochs(f'out/{subject}/epochs_on_task-epo.fif')
-        all_tfr_epochs_on_task = mne.time_frequency.read_tfrs(f'out/{subject}/epochs_on_task-tfr.h5')
+    # load hdf5 and run gen_erds_plots
+    streams = h5py.File(streams_path, 'r')
     
-    # TODO load hdf5 and run gen_erds_plots
+    with open(meta_path, 'rb') as f:
+        meta_data = pickle.load(f)
     
-    # freqs = np.arange(2, 50, 0.2)
-    # gen_erds_plots(all_tfr_epochs_on_task, subject, erds_event_ids, out_folder=f'out/{subject}', freqs=freqs,
-    #                 comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=None)
-    # gen_erds_plots(all_tfr_epochs_on_task, subject, erds_event_ids, out_folder=f'out/{subject}', freqs=freqs,
-    #                 comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=None)
+    eeg_info = meta_data['eeg_info']
+    freqs = meta_data['freqs']
+    times = meta_data['on_task_times']
     
+    # epochs = load_epochs_for_subject(output_path, epoch_type='epochs_on_task')
+    events = streams['events'][:]
+    on_task_events_i = np.logical_or.reduce([events[:, 2] == teid for teid in meta_data['task_event_ids'].values()], axis=0)
+    on_task_events = events[on_task_events_i, :]
+    epochs = mne.time_frequency.EpochsTFR(eeg_info, streams['tfr_epochs_on_task'][:], times, freqs,
+                                          verbose=verbose, events=on_task_events, event_id=meta_data['task_event_ids'])
+    
+    gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined_clust', freqs=freqs,
+                    comp_time_freq=True, comp_tf_clusters=True, channels=('C3', 'Cz', 'C4'), baseline=None)
+    gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined', freqs=freqs,
+                    comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=None)
+    
+    streams.close()
+
     print(f'data loaded for subject {subject}')
+    
