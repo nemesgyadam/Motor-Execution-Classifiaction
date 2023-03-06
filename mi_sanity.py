@@ -156,11 +156,11 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
     tmin, tmax = -1, None
     vmin, vmax = -1, 1.5
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
-    epochs = epochs.pick(channels)
+    epochs = epochs.load_data().copy().pick(channels)
     
     if isinstance(epochs, mne.Epochs) or isinstance(epochs, mne.EpochsArray):
-        if baseline is not None:
-            epochs.apply_baseline(baseline, verbose=verbose)
+        # if baseline is not None:
+        #     epochs.apply_baseline(baseline, verbose=verbose)
         tfr = tfr_multitaper(epochs, freqs=freqs, n_cycles=freqs, use_fft=True,
                              return_itc=False, average=False, verbose=verbose)#, decim=2)
     elif isinstance(epochs, mne.time_frequency.EpochsTFR):
@@ -180,7 +180,7 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
             # select desired epochs for visualization
             tfr_ev = tfr[event]
             fig, axes = plt.subplots(1, len(channels) + 1, figsize=(14, 4),
-                                    gridspec_kw={"width_ratios": [10] * len(channels) + [1]})
+                                     gridspec_kw={"width_ratios": [10] * len(channels) + [1]})
             
             for ch, ax in enumerate(axes[:-1]):  # for each channel
 
@@ -211,7 +211,12 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
                 if ch != 0:
                     ax.set_ylabel("")
                     ax.set_yticklabels("")
-            fig.colorbar(axes[0].images[-1], cax=axes[-1]).ax.set_yscale("linear")
+            
+            # it worked so far, but out of the blue, axis.images started disappearing, so i needed
+            # an alternative method to get the underlying img (or quadmesh) that defines the colorbar
+            # fucking waste of time
+            cbar_src = axes[0].images[-1] if len(axes[0].images) > 0 else axes[0].collections[0]
+            fig.colorbar(cbar_src, cax=axes[-1]).ax.set_yscale("linear")
             fig.suptitle(f"ERDS ({event})")
             os.makedirs(out_folder, exist_ok=True)
             fig.savefig(f'{out_folder}/{ds_name}_erds_{event}.png')
