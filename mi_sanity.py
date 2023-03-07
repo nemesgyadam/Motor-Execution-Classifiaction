@@ -150,26 +150,27 @@ def gen_erp_plots(epochs, ds_name, out_folder):
 
 
 def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=True, comp_tf_clusters=True,
-                   channels=('C3', 'C1', 'C2', 'C4'), baseline=None, verbose=False):
+                   channels=('C3', 'C1', 'C2', 'C4'), baseline=None, verbose=False, apply_baseline=False):
     
     ### ERDS: https://mne.tools/dev/auto_examples/time_frequency/time_frequency_erds.html
-    tmin, tmax = -1, None
+    tmin, tmax = baseline[0], None
     vmin, vmax = -1, 1.5
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
-    epochs = epochs.load_data().copy().pick(channels)
     
     if isinstance(epochs, mne.Epochs) or isinstance(epochs, mne.EpochsArray):
+        epochs = epochs.load_data().copy().pick(channels)
         # if baseline is not None:
         #     epochs.apply_baseline(baseline, verbose=verbose)
         tfr = tfr_multitaper(epochs, freqs=freqs, n_cycles=freqs, use_fft=True,
                              return_itc=False, average=False, verbose=verbose)#, decim=2)
     elif isinstance(epochs, mne.time_frequency.EpochsTFR):
+        epochs = epochs.copy().pick(channels)
         tfr = epochs
     else:
         raise ValueError('epochs must be type Epochs or EpochsTFR')
     
     tfr.crop(tmin, tmax)
-    if baseline is not None:
+    if apply_baseline:
         tfr.apply_baseline(baseline, mode='percent', verbose=verbose)
 
     kwargs = dict(n_permutations=100, step_down_p=0.05, seed=1,

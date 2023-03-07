@@ -365,10 +365,10 @@ def process_session(rec_base_path, subject, session, exp_cfg_path='config/lr_fin
             .savefig(f'{fig_output_path}/epochs-on-task-nothing-avg.png')
 
         gen_erds_plots(epochs_on_task, rec_name, task_event_ids, out_folder=f'{fig_output_path}/tfr_raw', freqs=freqs,
-                    comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=baseline)
+                    comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=baseline, apply_baseline=True)
 
         gen_erds_plots(epochs_on_task, rec_name, task_event_ids, out_folder=f'{fig_output_path}/tfr_clust', freqs=freqs,
-                    comp_time_freq=True, comp_tf_clusters=True, channels=('C3', 'Cz', 'C4'), baseline=baseline)
+                    comp_time_freq=True, comp_tf_clusters=True, channels=('C3', 'Cz', 'C4'), baseline=baseline, apply_baseline=True)
     
     if do_plot:
         plt.close('all')
@@ -439,23 +439,24 @@ def process_eyes_open_closed(raw: mne.io.Raw, events: np.ndarray, info: mne.Info
 
 
 if __name__ == '__main__':
-    subject = '0717b399'
-    session_ids = range(1, 8)
+    subject = '0717b399'  # 0717b399 | 6808dfab
+    session_ids = range(1, 8)  # range(1, 8) | range(1, 4)
     freqs = np.logspace(np.log(2), np.log(50), num=100, base=np.e)  # linear: np.arange(2, 50, 0.2)
     tfr_mode = 'multitaper'
-    do_plot = False  # TODO
+    do_plot = True
     n_jobs = 4
     verbose = False
     rerun_proc = True
     bandpass_freq = (.5, 80)
     notch_freq=(50, 100)
-    baseline = (-1, 0)  # on task; don't use -1.5, remove parts related to the beep
+    baseline = (-1.5, 0)  # on task; don't use -1.5, remove parts related to the beep  # TODO trying now 1.5
     comp_break_epochs = False
     eeg_sfreq, gamepad_sfreq = 250, 125  # hardcoded for now
     store_per_session_recs = False
+    tfr_baseline_mode = 'percent'
     
     recordings_path = '../recordings'
-    output_path = f'out/{subject}'
+    output_path = f'out_15/{subject}'  # TODO 1.5
     meta_path = f'{output_path}/{subject}_meta.pckl'
     streams_path = f'{output_path}/{subject}_streams.h5'
     os.makedirs(output_path, exist_ok=True)
@@ -480,7 +481,7 @@ if __name__ == '__main__':
             sess = process_session(recordings_path, subject, sid, tfr_mode=tfr_mode, freqs=freqs, n_jobs=n_jobs, do_plot=do_plot,
                                    verbose=verbose, fig_output_path=f'{output_path}/figures/{sid:03d}', baseline=baseline,
                                    comp_break_epochs=comp_break_epochs, bandpass_freq=bandpass_freq, notch_freq=notch_freq,
-                                   eeg_sfreq=eeg_sfreq, gamepad_sfreq=gamepad_sfreq)
+                                   eeg_sfreq=eeg_sfreq, gamepad_sfreq=gamepad_sfreq, tfr_baseline_mode=tfr_baseline_mode)
             
             # create IAF plots
             _, _, iaf = process_eyes_open_closed(sess['filt_raw_eeg'], sess['events'], sess['eeg_info'],
@@ -554,9 +555,9 @@ if __name__ == '__main__':
     
     if do_plot:
         gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined_clust', freqs=freqs,
-                        comp_time_freq=True, comp_tf_clusters=True, channels=('C3', 'Cz', 'C4'), baseline=None)
+                        comp_time_freq=True, comp_tf_clusters=True, channels=('C3', 'Cz', 'C4'), baseline=baseline, apply_baseline=False)
         gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined', freqs=freqs,
-                        comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=None)
+                        comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'), baseline=baseline, apply_baseline=False)
     
     streams_data.close()
     print(f'data loaded for subject {subject}')
