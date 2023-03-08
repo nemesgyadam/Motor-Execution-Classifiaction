@@ -1,12 +1,20 @@
-keras
+#tensorflow
+#keras
 matplotlib
 nptyping
 numpy
 scikit_learn
 scipy
 setuptools
-tensorflow
-opencv
+opencv-python
+sklearn
+scikit-image
+
+torch
+torchvision
+torchaudio
+lightning
+wandb
 
 pyqtgraph
 psychopy
