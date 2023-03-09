@@ -12,9 +12,10 @@ import lightning as L
 from scipy.interpolate import interp1d
 from skimage.transform import resize
 from torchvision.transforms import Compose, ToTensor
-from torchvision.models import resnet50, ResNet50_Weights
 from torch.nn import Linear, Softmax, CrossEntropyLoss
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
+
+from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights
 
 
 class EEGTfrEpochs(Dataset):
@@ -97,6 +98,10 @@ class TfrClassification(L.LightningModule):
         # self.softmax = Softmax(dim=2)
         self.loss_fun = CrossEntropyLoss()
 
+        self.model.requires_grad_(True)
+        self.model.fc.requires_grad_(True)
+        print(self.model)
+
     def training_step(self, batch, batch_idx):
         x, y = batch
         yy = self.model(x)
@@ -108,17 +113,15 @@ class TfrClassification(L.LightningModule):
             x, y = batch
             yy = self.model(x)
             loss = self.loss_fun(yy, y)
-        self.log('val_loss', loss)
+        self.log('val_loss', loss, prog_bar=True)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True, factor=0.2)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
 
 # TODO augmentations (torchvision.transforms)
-
-
-# TODO separate model into model-lightningmodule, fix errors and shit
 
 
 ds_root_path = 'out/'
@@ -154,51 +157,53 @@ class norm:
         return (x - x.min()) / (x.max() - x.min())
 
 
-model_cls = resnet50
-model_weights = ResNet50_Weights.DEFAULT
+if __name__ == '__main__':
 
-transform = Compose([norm, ToTensor(), model_weights.transforms()])
+    model_cls = resnet18
+    model_weights = ResNet18_Weights.DEFAULT
 
-with open(f'{ds_root_path}/{subject}/{subject}_meta.pckl', 'rb') as f:
-    meta = pickle.load(f)
+    transform = Compose([norm(), ToTensor(), model_weights.transforms()])
 
-task_event_ids = meta['task_event_ids']
-chan_names = meta['eeg_ch_names']
-print(chan_names)
-print(task_event_ids)
+    with open(f'{ds_root_path}/{subject}/{subject}_meta.pckl', 'rb') as f:
+        meta = pickle.load(f)
 
-include_chans_idx = [chan_names.index(name) for name in cfg['include_chans_name']]
-event_id_cls_map = {task_event_ids[evname]: cls for evname, cls in cfg['event_name_cls_map'].items()}
+    task_event_ids = meta['task_event_ids']
+    chan_names = meta['eeg_ch_names']
+    print(chan_names)
+    print(task_event_ids)
 
-train_ds = EEGTfrEpochs(f'{ds_root_path}/{subject}/{subject}_streams.h5', event_id_cls_map,
-                        cfg['train_sessions'], include_chans_idx, cfg['epoch_t_interval'],
-                        cfg['epoch_type'], cfg['load_to_mem'], transform, cfg['match_t_and_freq_dim'])
-valid_ds = EEGTfrEpochs(f'{ds_root_path}/{subject}/{subject}_streams.h5', event_id_cls_map,
-                        cfg['valid_sessions'], include_chans_idx, cfg['epoch_t_interval'],
-                        cfg['epoch_type'], cfg['load_to_mem'], transform, cfg['match_t_and_freq_dim'])
+    include_chans_idx = [chan_names.index(name) for name in cfg['include_chans_name']]
+    event_id_cls_map = {task_event_ids[evname]: cls for evname, cls in cfg['event_name_cls_map'].items()}
 
-loader_cfg = dict(num_workers=cfg['num_workers'], prefetch_factor=cfg['prefetch_factor'], pin_memory=True,
-                  persistent_workers=cfg['num_workers'] > 0, batch_size=cfg['batch_size'])
+    train_ds = EEGTfrEpochs(f'{ds_root_path}/{subject}/{subject}_streams.h5', event_id_cls_map,
+                            cfg['train_sessions'], include_chans_idx, cfg['epoch_t_interval'],
+                            cfg['epoch_type'], cfg['load_to_mem'], transform, cfg['match_t_and_freq_dim'])
+    valid_ds = EEGTfrEpochs(f'{ds_root_path}/{subject}/{subject}_streams.h5', event_id_cls_map,
+                            cfg['valid_sessions'], include_chans_idx, cfg['epoch_t_interval'],
+                            cfg['epoch_type'], cfg['load_to_mem'], transform, cfg['match_t_and_freq_dim'])
 
-train_dl = DataLoader(train_ds, shuffle=True, **loader_cfg)
-valid_dl = DataLoader(valid_ds, shuffle=False, **loader_cfg)
+    loader_cfg = dict(num_workers=cfg['num_workers'], prefetch_factor=cfg['prefetch_factor'], pin_memory=True,
+                      persistent_workers=cfg['num_workers'] > 0, batch_size=cfg['batch_size'])
 
-# model
-model_name = 'resnetbaby'
-model_fname_template = '{epoch}_{step}_{val_loss:.2f}'
-classif = TfrClassification(model_cls, model_weights, cfg)
+    train_dl = DataLoader(train_ds, shuffle=True, **loader_cfg)
+    valid_dl = DataLoader(valid_ds, shuffle=False, **loader_cfg)
 
-callbacks = [ModelCheckpoint(f'models/{model_name}', model_fname_template, monitor='val_loss',
-                             save_top_k=1, save_last=False, verbose=True),
-             LearningRateMonitor(logging_interval='step'),
-             EarlyStopping('val_loss', patience=4)]
+    # model
+    model_name = 'resnetbaby'
+    model_fname_template = '{epoch}_{step}_{val_loss:.2f}'
+    classif = TfrClassification(model_cls, model_weights, cfg)
 
-trainer = L.Trainer(accelerator=cfg['dev'], devices=cfg['ndev'], strategy=cfg['multi_dev_strat'],
-                    max_epochs=cfg['epochs'], default_root_dir=f'models/{model_name}', callbacks=callbacks,
-                    benchmark=False, accumulate_grad_batches=cfg['accumulate_grad_batches'], precision=cfg['precision'],
-                    gradient_clip_val=cfg['gradient_clip_val'])
+    callbacks = [ModelCheckpoint(f'models/{model_name}', model_fname_template, monitor='val_loss',
+                                 save_top_k=1, save_last=False, verbose=True),
+                 LearningRateMonitor(logging_interval='step'),
+                 EarlyStopping('val_loss', patience=10)]
 
-trainer.fit(classif, train_dl, valid_dl)
+    trainer = L.Trainer(accelerator=cfg['dev'], devices=cfg['ndev'], strategy=cfg['multi_dev_strat'],
+                        max_epochs=cfg['epochs'], default_root_dir=f'models/{model_name}', callbacks=callbacks,
+                        benchmark=False, accumulate_grad_batches=cfg['accumulate_grad_batches'],
+                        precision=cfg['precision'], gradient_clip_val=cfg['gradient_clip_val'])
 
-train_ds.close()
-valid_ds.close()
+    trainer.fit(classif, train_dl, valid_dl)
+
+    train_ds.close()
+    valid_ds.close()
