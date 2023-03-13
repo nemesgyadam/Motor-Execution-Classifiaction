@@ -11,7 +11,7 @@ import wandb
 import lightning as L
 from scipy.interpolate import interp1d
 from skimage.transform import resize
-from torchvision.transforms import Compose, ToTensor
+from torchvision.transforms import Compose, ToTensor, Resize
 from torch.nn import Linear, Softmax, CrossEntropyLoss
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 
@@ -23,6 +23,8 @@ class EEGTfrEpochs(Dataset):
     def __init__(self, h5_path: str, event_id_cls_map: Dict[int, int], sessions: List[int], chans: List[int],
                  epoch_t_interval: Tuple[float, float] = None, epoch_type='tfr_epochs_on_task', load_to_mem=True,
                  transform=lambda x: x, match_t_and_freq_dim=None):
+
+        assert match_t_and_freq_dim is None or (match_t_and_freq_dim is not None and epoch_type == 'tfr_epochs_on_task')
 
         self.data = h5py.File(h5_path, 'r')
         self.epochs = self.data[epoch_type]
@@ -65,15 +67,13 @@ class EEGTfrEpochs(Dataset):
 
     def __getitem__(self, index) -> T_co:
         x = self.epochs_in_mem[index, ...] if self.epochs_in_mem is not None \
-            else self.epochs[self.epoch_idx[index], self.chans, :, self.epoch_t_slice]
+            else self.epochs[self.epoch_idx[index], self.chans, ..., self.epoch_t_slice]
         y = self.event_id_cls_map[self.events[index]]
 
         # TODO move this to init when epochs in mem
         if self.match_t_and_freq_dim:
-            # fx = interp1d(self.times, x, kind='linear', axis=-1)
-            # fx(self.times[::])
             x = np.transpose(x, (1, 2, 0))  # channel last
-            match_dim = self.match_t_and_freq_dim(x.shape[:2])  # TODO could be max
+            match_dim = self.match_t_and_freq_dim(x.shape[:2])
             x = resize(x, (match_dim, match_dim), preserve_range=True, order=2)
             # x = np.transpose(x, (2, 0, 1))  # ToTensor does the transpose
 
@@ -147,14 +147,18 @@ cfg = dict(
     multi_dev_strat=None,
     precision=32,
     gradient_clip_val=None,
-    num_workers=4,
-    prefetch_factor=4,
+    num_workers=0,
+    prefetch_factor=2,
 )
 
 
-class norm:
+class norm:  # TODO per-sample
     def __call__(self, x):
         return (x - x.min()) / (x.max() - x.min())
+
+
+def _a(x):
+    return x
 
 
 if __name__ == '__main__':
@@ -162,7 +166,7 @@ if __name__ == '__main__':
     model_cls = resnet18
     model_weights = ResNet18_Weights.DEFAULT
 
-    transform = Compose([norm(), ToTensor(), model_weights.transforms()])
+    transform = Compose([ToTensor(), Resize(224)]) #norm(), ToTensor(),  model_weights.transforms()])  # TODO norm(),
 
     with open(f'{ds_root_path}/{subject}/{subject}_meta.pckl', 'rb') as f:
         meta = pickle.load(f)
@@ -187,6 +191,9 @@ if __name__ == '__main__':
 
     train_dl = DataLoader(train_ds, shuffle=True, **loader_cfg)
     valid_dl = DataLoader(valid_ds, shuffle=False, **loader_cfg)
+
+    # for d in train_dl:
+    #     print(d)
 
     # model
     model_name = 'resnetbaby'
