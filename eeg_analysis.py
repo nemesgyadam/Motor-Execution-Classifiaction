@@ -13,6 +13,7 @@ import pickle
 import h5py
 from glob import glob
 
+
 def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, new_id=None, fill_na=None, occur=True):
     """Define new events by (non)-co-occurrence of existing events.
 
@@ -97,7 +98,19 @@ def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, n
 # https://github.com/unicorn-bi/Unicorn-Suite-Hybrid-Black/blob/master/Unicorn%20.NET%20API/UnicornLSL/UnicornLSL/MainUI.cs#L338
 
 
-def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path='config/lr_finger/exp_me_l_r_lr_stim-w-dots.json',
+def filter_bad_epochs(epochs: mne.Epochs, percent_to_keep=90, copy=False, verbose=False) -> mne.Epochs:
+    """Drops those where the peak-to-peak values are greater than 'percent_to_keep' percent of all the epochs"""
+    epoch_data = epochs.get_data()
+    peak_to_peak = np.max(np.max(epoch_data, axis=-1) - np.min(epoch_data, axis=-1), axis=1)
+    limit_value = np.percentile(peak_to_peak, percent_to_keep)
+    # bad_epochs = epochs[peak_to_peak > limit_value]
+    # bad_epochs.plot(scalings=50, block=True)
+    epochs = epochs.copy() if copy else epochs
+    epochs.drop_bad(reject=dict(eeg=int(limit_value)), verbose=verbose)
+    return epochs
+
+
+def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                        eeg_sfreq=250, gamepad_sfreq=125, bandpass_freq=(0.5, 80), notch_freq=(50, 100),
                        freqs=np.arange(2, 50, 0.2), do_plot=False, reaction_tmax=1.,
                        n_jobs=4, verbose=False, fig_output_path='out'):
@@ -107,7 +120,6 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path='
 
     # recording path
     rec_path = f'{rec_base_path}/sub-{subject}/ses-S{session:03d}/eeg/sub-{subject}_ses-S{session:03d}_task-me-l-r-lr_run-001_eeg.xdf'
-    rec_name = f'{subject}-{session:03d}'
 
     # experiment config
     with open(exp_cfg_path, 'rt') as f:
@@ -293,14 +305,14 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path='
     all_events = all_events[np.argsort(all_events[:, 0]), :]
 
     return dict(success_markers={'left': left_success_marker, 'right': right_success_marker,
-                                 'both': lr_success_marker, 'nothing': nothing_success_marker,
+                                 'left-right': lr_success_marker, 'nothing': nothing_success_marker,
                                  'break': break_success_marker},
                 filt_raw_eeg=filt_raw_eeg, gamepad=gamepad, events=all_events, event_dict=event_dict,
                 eeg_info=eeg_info, freqs=freqs, eeg_ch_names=eeg_ch_names)
 
 
 def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',  # cwt | multitaper
-                  tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False):
+                  tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None):
     filt_raw_eeg = prep_results['filt_raw_eeg']
     all_events = prep_results['events']
 
@@ -311,11 +323,14 @@ def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
     succ_markers = prep_results['success_markers']
 
     task_event_ids = {task: marker for task, marker in succ_markers.items()
-                      if task in {'left', 'right', 'both', 'nothing'}}
+                      if task in {'left', 'right', 'left-right', 'nothing'}}
 
     epochs_on_task = mne.Epochs(filt_raw_eeg, all_events, event_id=task_event_ids, baseline=None, verbose=verbose,
                                 tmin=-exp_cfg['event-duration']['baseline'], tmax=exp_cfg['event-duration']['task'][0])
     epochs_on_task.apply_baseline(baseline, verbose=verbose)
+
+    if filter_percentile is not None:
+        epochs_on_task = filter_bad_epochs(epochs_on_task, filter_percentile, copy=False, verbose=verbose)
     
     # tfr: cwt or multitaper; multitaper is better if the signal is not that time-locked
     n_cycles = (np.log(freqs) * 2 + 3).astype(  # conservatively high freq (and low time) resolution by default
@@ -337,7 +352,7 @@ def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
 
 
 def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
-                  tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False):
+                  tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None):
     filt_raw_eeg = prep_results['filt_raw_eeg']
     all_events = prep_results['events']
     event_dict = prep_results['event_dict']
@@ -355,8 +370,11 @@ def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
                                 tmax=exp_cfg['event-duration']['task'][0] - .5)
     epochs_on_pull.apply_baseline(baseline, verbose=verbose)
 
-    n_cycles = (np.log(freqs) * 2 + 3).astype(  # conservatively high freq (and low time) resolution by default
-        np.int32) if n_cycles is None else n_cycles
+    if filter_percentile is not None:
+        epochs_on_pull = filter_bad_epochs(epochs_on_pull, filter_percentile, copy=False, verbose=verbose)
+
+    # conservatively high freq (and low time) resolution by default
+    n_cycles = (np.log(freqs) * 2 + 3).astype(np.int32) if n_cycles is None else n_cycles
     tfr_settings = dict(freqs=freqs, n_cycles=n_cycles, return_itc=False, average=False, n_jobs=n_jobs, verbose=verbose)
 
     if tfr_mode == 'cwt':
@@ -374,7 +392,7 @@ def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
 
 
 def epoch_on_break(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
-                   tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False):
+                   tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None):
     filt_raw_eeg = prep_results['filt_raw_eeg']
     all_events = prep_results['events']
 
@@ -386,6 +404,9 @@ def epoch_on_break(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), 
                                  tmin=-exp_cfg['event-duration']['task'][0] / 2,
                                  tmax=exp_cfg['event-duration']['break'][0])
     epochs_on_break.apply_baseline(baseline, verbose=verbose)
+
+    if filter_percentile is not None:
+        epochs_on_break = filter_bad_epochs(epochs_on_break, filter_percentile, copy=False, verbose=verbose)
 
     n_cycles = (np.log(freqs) * 2 + 3).astype(  # conservatively high freq (and low time) resolution by default
         np.int32) if n_cycles is None else n_cycles
@@ -524,7 +545,8 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, ver
     on_task_events_i = np.logical_or.reduce([events[:, 2] == teid for teid in meta_data['task_event_ids'].values()], axis=0)
     on_task_events = events[on_task_events_i, :]
     epochs = mne.time_frequency.EpochsTFR(eeg_info, streams_data['tfr_epochs_on_task'][:], times, freqs,
-                                          verbose=verbose, events=on_task_events, event_id=meta_data['task_event_ids'])
+                                          verbose=verbose, events=on_task_events, event_id=meta_data['task_event_ids'],
+                                          drop_log=None)  # TODO need to provide drop log
 
     gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined',
                    freqs=freqs, comp_time_freq=True, comp_tf_clusters=False, channels=('C3', 'Cz', 'C4'),
@@ -546,17 +568,19 @@ def main(
     session_ids=range(1, 9),  # range(1, 9) | range(1, 4)
     freqs=np.logspace(np.log(2), np.log(50), num=100, base=np.e),  # linear: np.arange(2, 50, 0.2)
     tfr_mode='multitaper',  # cwt | multitaper
-    do_plot=True,
-    n_jobs=4,
+    do_plot=False,
+    n_jobs=6,
     verbose=False,
     rerun_proc=True,
     bandpass_freq=(.5, 80),
     notch_freq=(50, 100),
-    baseline=(-1, 0),  # on task; don't use -1.5, remove parts related to the beep
+    baseline=(-1, -.05),  # on task; don't use -1.5, remove parts related to the beep
     eeg_sfreq=250, gamepad_sfreq=125,  # hardcoded for now
     reaction_tmax=0.5,
     store_per_session_recs=False,
-    tfr_baseline_mode='logratio'):
+    tfr_baseline_mode='logratio',
+    filter_percentile=90
+):
 
     recordings_path = '../recordings'
     exp_cfg_path = 'config/lr_finger/exp_me_l_r_lr_stim-w-dots.json'
@@ -613,12 +637,12 @@ def main(
 
             # epoch sessions
             task_epochs_sess = epoch_on_task(sess, exp_cfg_path, freqs, baseline, tfr_mode,
-                                             tfr_baseline_mode, verbose=verbose)
+                                             tfr_baseline_mode, verbose=verbose, filter_percentile=filter_percentile)
             # TODO see todo in pull_epochs_sess
             # pull_epochs_sess = epoch_on_pull(sess, exp_cfg_path, freqs, baseline, tfr_mode,
-            #                                  tfr_baseline_mode, verbose=verbose)
+            #                                  tfr_baseline_mode, verbose=verbose, filter_percentile=filter_percentile)
             break_epochs_sess = epoch_on_break(sess, exp_cfg_path, freqs, baseline, tfr_mode,
-                                               tfr_baseline_mode, verbose=verbose)
+                                               tfr_baseline_mode, verbose=verbose, filter_percentile=filter_percentile)
             sess = dict(**sess, **task_epochs_sess, **break_epochs_sess)  #, **pull_epochs_sess)
 
             # plots per session
@@ -646,8 +670,7 @@ def main(
             # append streams to h5
             for name, data in sess_data.items():
                 info = streams_info[name]
-                ds_name = f'{name}_{sid}' if not info[
-                    'epoch'] else name  # separate name/session for non epoched streams
+                ds_name = f'{name}_{sid}' if not info['epoch'] else name  # separate name/session for non epoched streams
 
                 if info['epoch']:
                     streams_data[ds_name].resize(streams_data[ds_name].shape[0] + data.shape[0], axis=0)
@@ -681,4 +704,24 @@ def main(
 
 
 if __name__ == '__main__':
-    main()
+
+    # baseline
+    main(baseline=(-1, 0), do_plot=False, rerun_proc=True)
+    exit()
+    main(baseline=(-1, -.1), do_plot=True)
+    main(baseline=(-1.5, 0), do_plot=True)
+    main(baseline=(-1.5, -.1), do_plot=True)
+
+    # tfr_mode
+    main(tfr_mode='cwt', do_plot=True)
+
+    # tfr_baseline_mode
+    main(tfr_baseline_mode='percent', do_plot=True)
+    main(tfr_baseline_mode='ratio', do_plot=True)
+    main(tfr_baseline_mode='zscore', do_plot=True)
+    main(tfr_baseline_mode='zlogratio', do_plot=True)
+
+    # reaction_tmax
+    main(reaction_tmax=1., do_plot=True)
+    main(reaction_tmax=.45, do_plot=True)
+    main(reaction_tmax=.4, do_plot=True)
