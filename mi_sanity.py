@@ -150,7 +150,7 @@ def gen_erp_plots(epochs, ds_name, out_folder):
 
 
 def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=True, comp_tf_clusters=True,
-                   channels=('C3', 'C1', 'C2', 'C4'), baseline=None, verbose=False, apply_baseline=False):
+                   channels=('C3', 'C1', 'C2', 'C4'), baseline=None, verbose=False, apply_baseline=False, copy=True):
     
     ### ERDS: https://mne.tools/dev/auto_examples/time_frequency/time_frequency_erds.html
     tmin, tmax = baseline[0], None
@@ -158,13 +158,19 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     
     if isinstance(epochs, mne.Epochs) or isinstance(epochs, mne.EpochsArray):
-        epochs = epochs.load_data().copy().pick(channels)
+        if copy:
+            epochs = epochs.load_data().copy().pick(channels)
+        else:
+            epochs = epochs.load_data().pick(channels)
         # if baseline is not None:
         #     epochs.apply_baseline(baseline, verbose=verbose)
         tfr = tfr_multitaper(epochs, freqs=freqs, n_cycles=freqs, use_fft=True,
                              return_itc=False, average=False, verbose=verbose)#, decim=2)
     elif isinstance(epochs, mne.time_frequency.EpochsTFR):
-        epochs = epochs.copy().pick(channels)
+        if copy:
+            epochs = epochs.copy().pick(channels)
+        else:
+            epochs = epochs.pick(channels)
         tfr = epochs
     else:
         raise ValueError('epochs must be type Epochs or EpochsTFR')
@@ -203,9 +209,8 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
                     mask_style = None
 
                 # plot TFR (ERDS map with masking)
-                tfr_ev.average().plot([ch], cmap="RdBu", cnorm=cnorm, axes=ax,
-                                    colorbar=False, show=False, mask=mask,
-                                    mask_style=mask_style)
+                tfr_ev.average().plot([ch], cmap="RdBu_r", cnorm=cnorm, axes=ax, colorbar=False,
+                                      show=False, mask=mask, mask_style=mask_style)
 
                 ax.set_title(epochs.ch_names[ch], fontsize=10)
                 ax.axvline(0, linewidth=1, color="black", linestyle=":")  # event
@@ -306,9 +311,12 @@ if __name__ == '__main__':
 
             mi_epochs = mne.EpochsArray(mis, info=info, events=events, event_id=event_id)
             cue_epochs = mne.EpochsArray(cues, info=info, events=events, event_id=event_id)
-            cue_n_mi_epochs = mne.EpochsArray(np.concatenate([cues, mis], axis=-1), info=info, events=events, event_id=event_id)
-            bl_n_cue_epochs = mne.EpochsArray(np.concatenate([baselines, cues], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
-            bl_n_cue_n_mi_epochs = mne.EpochsArray(np.concatenate([baselines, cues, mis], axis=-1), info=info, events=events, event_id=event_id, tmin=baseline_t)
+            cue_n_mi_epochs = mne.EpochsArray(np.concatenate([cues, mis], axis=-1), info=info,
+                                              events=events, event_id=event_id)
+            bl_n_cue_epochs = mne.EpochsArray(np.concatenate([baselines, cues], axis=-1), info=info,
+                                              events=events, event_id=event_id, tmin=baseline_t)
+            bl_n_cue_n_mi_epochs = mne.EpochsArray(np.concatenate([baselines, cues, mis], axis=-1), info=info,
+                                                   events=events, event_id=event_id, tmin=baseline_t)
 
             # remove channels
             mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs, bl_n_cue_n_mi_epochs = map(lambda eeg: eeg.drop_channels(drop_chans),

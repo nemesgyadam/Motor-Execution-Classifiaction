@@ -21,3 +21,6 @@ psychopy
 psychtoolbox
 pylsl
 pyxdf
+
+moabb
+braindecode
