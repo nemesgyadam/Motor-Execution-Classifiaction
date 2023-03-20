@@ -235,11 +235,11 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
 
     # Map to frequency bands:
     freq_bounds = {'_': 0,
-                'delta': 3,
-                'theta': 7,
-                'alpha': 13,
-                'beta': 35,
-                'gamma': 140}
+                   'delta': 3,
+                   'theta': 7,
+                   'alpha': 13,
+                   'beta': 35,
+                   'gamma': 140}
     df['band'] = pd.cut(df['freq'], list(freq_bounds.values()),
                         labels=list(freq_bounds)[1:])
 

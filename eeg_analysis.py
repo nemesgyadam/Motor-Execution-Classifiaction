@@ -535,11 +535,11 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
         meta_data = pickle.load(f)
 
     eeg_info = meta_data['eeg_info']
-    freqs = meta_data['freqs']
-    times = meta_data['on_task_times']
+    freqs = streams_data.attrs['freqs']
+    times = streams_data.attrs['on_task_times'][:]
 
     # epochs = load_epochs_for_subject(output_path, epoch_type='epochs_on_task')
-    events = streams_data['events'][:]
+    # events = streams_data['events'][:]
     on_task_events = streams_data['on_task_events'][:]
     # on_task_events_i = np.logical_or.reduce([events[:, 2] == teid for teid in meta_data['task_event_ids'].values()], axis=0)
     # on_task_events = events[on_task_events_i, :]
@@ -548,11 +548,12 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
     tfr = streams_data['tfr_epochs_on_task'][:]
     if norm_c34_w_cz:
         cz = tfr[:, eeg_info['ch_names'].index('Cz')]
-        tfr[:, eeg_info['ch_names'].index('C3')] -= cz
-        tfr[:, eeg_info['ch_names'].index('C4')] -= cz
+        tfr[:, eeg_info['ch_names'].index('C3')] = 2 * tfr[:, eeg_info['ch_names'].index('C3')] - cz
+        tfr[:, eeg_info['ch_names'].index('C4')] = 2 * tfr[:, eeg_info['ch_names'].index('C4')] - cz
 
-    # pick channels
-
+    # pick channels, downsample time
+    tfr = tfr[..., ::2]
+    times = times[::2]
     epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr, times, freqs,
                                           verbose=verbose, events=on_task_events, event_id=meta_data['task_event_ids'])
     # epochs = epochs[:100]
@@ -705,6 +706,7 @@ def main(
                 sess['tfr_epochs_on_task'].save(tfr_epochs_path, overwrite=True, verbose=verbose)
 
         streams_data.attrs['num_epochs'] = num_epochs
+        streams_data.attrs['session_ids'] = sum([[sid] * num_epochs[i] for i, sid in enumerate(session_ids)], [])
         streams_data.attrs['on_task_times'] = meta_data['on_task_times']
         streams_data.attrs['freqs'] = meta_data['freqs']
 
@@ -720,11 +722,14 @@ def main(
                               norm_c34_w_cz, verbose)
 
 
+# TODO upload new h5 versions
+
+
 if __name__ == '__main__':
 
-    main(do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    main(do_plot=False, rerun_proc=False, tfr_mode='cwt', freqs=np.logspace(np.log(4), np.log(50), num=100, base=np.e),
-         combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    main(do_plot=False, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    # main(do_plot=False, rerun_proc=False, tfr_mode='cwt', freqs=np.logspace(np.log(4), np.log(50), num=100, base=np.e),
+    #      combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
 
     # baseline
     # main(baseline=(-1, -.1), do_plot=True)
