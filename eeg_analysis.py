@@ -266,17 +266,36 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     right_success_marker = int(f'{event_dict["right"]}{event_dict["R2-on"]}')
     lr_success_marker = int(f'{event_dict["left-right"]}2')
     nothing_success_marker = int(f'{event_dict["nothing"]}0')
+
+    left_success_pull_marker = int(f'{event_dict["L2-on"]}{event_dict["left"]}')
+    right_success_pull_marker = int(f'{event_dict["R2-on"]}{event_dict["right"]}')
+    lr_success_pull_marker = int(f'2{event_dict["left-right"]}')
     
     left_success = mne.event.define_target_events(all_events, event_dict['left'], event_dict['L2-on'],
-                                                  shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=left_success_marker)
+                                                  shared_sfreq, tmin=1e-4, tmax=reaction_tmax,
+                                                  new_id=left_success_marker)
     right_success = mne.event.define_target_events(all_events, event_dict['right'], event_dict['R2-on'],
-                                                   shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=right_success_marker)
+                                                   shared_sfreq, tmin=1e-4, tmax=reaction_tmax,
+                                                   new_id=right_success_marker)
     lr_success = define_target_events2(all_events, event_dict["left-right"], [event_dict['L2-on'], event_dict['R2-on']],
                                        shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=lr_success_marker)
-    # when nothing should be pressed, it just becomes a fucking headache (implemented it myself in the end) - mne is straight dogshit
-    nothing_success = define_target_events2(all_events, event_dict["nothing"], [event_dict['L2-on'], event_dict['R2-on']], shared_sfreq,
-                                            tmin=1e-4, tmax=exp_cfg['event-duration']['task'][0], new_id=nothing_success_marker, occur=False)
-    
+    # when nothing should be pressed, it just becomes a fucking headache (implemented it myself in the end)
+    # = mne is straight dogshit
+    nothing_success = define_target_events2(all_events, event_dict["nothing"], [event_dict['L2-on'], event_dict['R2-on']],
+                                            shared_sfreq, tmin=1e-4, tmax=exp_cfg['event-duration']['task'][0],
+                                            new_id=nothing_success_marker, occur=False)
+
+    left_success_pull = mne.event.define_target_events(all_events, event_dict['L2-on'], event_dict['left'],
+                                                       shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
+                                                       new_id=left_success_pull_marker)
+    right_success_pull = mne.event.define_target_events(all_events, event_dict['R2-on'], event_dict['right'],
+                                                        shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
+                                                        new_id=right_success_pull_marker)
+    lr_success_pull = mne.event.define_target_events(all_events, event_dict['R2-on'], event_dict['left-right'],
+                                                     shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
+                                                     new_id=lr_success_pull_marker)
+    # TODO anchored to left pull, not the avg of left and right pull
+
     # stats on delay
     if do_plot:
         fig = plt.figure()
@@ -293,7 +312,9 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     break_success = define_target_events2(all_events, break_marker, [event_dict['L2-off'], event_dict['R2-off']],
                                           shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=break_success_marker)
     
-    all_events = np.concatenate([all_events, left_success[0], right_success[0], lr_success[0], nothing_success[0], break_success[0]], axis=0)
+    all_events = np.concatenate([all_events, left_success[0], right_success[0], lr_success[0], nothing_success[0],
+                                 break_success[0], left_success_pull[0], right_success_pull[0],
+                                 lr_success_pull[0]], axis=0)
     
     # some stats
     num_old = [(all_events[:, 2] == event_dict[ev]).sum() for ev in ['left', 'right', 'left-right', 'nothing']]
@@ -307,7 +328,8 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
 
     return dict(success_markers={'left': left_success_marker, 'right': right_success_marker,
                                  'left-right': lr_success_marker, 'nothing': nothing_success_marker,
-                                 'break': break_success_marker},
+                                 'break': break_success_marker, 'left-pull': left_success_pull_marker,
+                                 'right-pull': right_success_pull_marker, 'left-right-pull': lr_success_pull_marker},
                 filt_raw_eeg=filt_raw_eeg, gamepad=gamepad, events=all_events, event_dict=event_dict,
                 eeg_info=eeg_info, freqs=freqs, eeg_ch_names=eeg_ch_names)
 
@@ -321,9 +343,7 @@ def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
         exp_cfg = json.load(f)
     
     # epoching
-    succ_markers = prep_results['success_markers']
-
-    task_event_ids = {task: marker for task, marker in succ_markers.items()
+    task_event_ids = {task: marker for task, marker in prep_results['success_markers'].items()
                       if task in {'left', 'right', 'left-right', 'nothing'}}
 
     epochs_on_task = mne.Epochs(filt_raw_eeg, all_events, event_id=task_event_ids, baseline=None, verbose=verbose,
@@ -351,29 +371,28 @@ def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
 
 
 def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
-                  tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None):
+                  tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None,
+                  reaction_tmax=1.):
     filt_raw_eeg = prep_results['filt_raw_eeg']
     all_events = prep_results['events']
-    event_dict = prep_results['event_dict']
 
     with open(exp_cfg_path, 'rt') as f:
         exp_cfg = json.load(f)
 
-    # TODO !!! L2 and R2 have overlapping event times (pressed at the same time)
-    #   need to separate only-L2 (when instructed for left), only-R2, and both successful pulls
-    #   create new events for these in preprocess
+    # epoching
+    pull_event_ids = {task: marker for task, marker in prep_results['success_markers'].items()
+                      if task in {'left-pull', 'right-pull', 'left-right-pull'}}
 
-    pull_event_ids = dict(L2=event_dict['L2-on'], R2=event_dict['R2-on'])
     epochs_on_pull = mne.Epochs(filt_raw_eeg, all_events, event_id=pull_event_ids, baseline=None, verbose=verbose,
                                 tmin=-exp_cfg['event-duration']['baseline'],
-                                tmax=exp_cfg['event-duration']['task'][0] - .5)
+                                tmax=exp_cfg['event-duration']['task'][0] - reaction_tmax)
     epochs_on_pull.apply_baseline(baseline, verbose=verbose)
 
     if filter_percentile is not None:
         epochs_on_pull = filter_bad_epochs(epochs_on_pull, filter_percentile, copy=False, verbose=verbose)
 
+    # tfr: cwt or multitaper; multitaper is better if the signal is not that time-locked
     tfr_settings = dict(freqs=freqs, n_cycles=n_cycles, return_itc=False, average=False, n_jobs=n_jobs, verbose=verbose)
-
     if tfr_mode == 'cwt':
         tfr_epochs_on_pull = mne.time_frequency.tfr_morlet(epochs_on_pull, output='power', **tfr_settings)
     elif tfr_mode == 'multitaper':
@@ -381,6 +400,7 @@ def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
     else:
         raise ValueError('invalid tfr_mode:', tfr_mode)
 
+    # apply baseline on tfr
     tfr_epochs_on_pull.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_pull=epochs_on_pull, tfr_epochs_on_pull=tfr_epochs_on_pull,
@@ -613,17 +633,17 @@ def main(
         streams_info = {'filt_raw_eeg': {'dtype': 'float32', 'epoch': False, 'get': lambda x: x.get_data()},
 
                         'epochs_on_task': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
-                        # 'epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
+                        'epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
                         'epochs_on_break': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
 
                         'tfr_epochs_on_task': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
-                        # 'tfr_epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
+                        'tfr_epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
                         'tfr_epochs_on_break': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
 
                         'gamepad': {'dtype': 'float16', 'epoch': False, 'get': lambda x: x},
                         'events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_task_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
-                        # 'on_pull_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
+                        'on_pull_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_break_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x}}  # i know, it got out of hand
 
         # process sessions one-by-one
@@ -655,12 +675,12 @@ def main(
             # epoch sessions
             task_epochs_sess = epoch_on_task(sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
                                              n_cycles, verbose=verbose, filter_percentile=filter_percentile)
-            # TODO see todo in pull_epochs_sess
-            # pull_epochs_sess = epoch_on_pull(sess, exp_cfg_path, freqs, baseline, tfr_mode,
-            #                                  tfr_baseline_mode, n_cycles, verbose=verbose, filter_percentile=filter_percentile)
+            pull_epochs_sess = epoch_on_pull(sess, exp_cfg_path, freqs, baseline, tfr_mode,
+                                             tfr_baseline_mode, n_cycles, verbose=verbose,
+                                             filter_percentile=filter_percentile, reaction_tmax=reaction_tmax)
             break_epochs_sess = epoch_on_break(sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
                                                n_cycles, verbose=verbose, filter_percentile=filter_percentile)
-            sess = dict(**sess, **task_epochs_sess, **break_epochs_sess)  #, **pull_epochs_sess)
+            sess = dict(**sess, **task_epochs_sess, **break_epochs_sess, **pull_epochs_sess)
 
             # plots per session
             if do_plot:
@@ -723,6 +743,10 @@ def main(
 
 
 # TODO upload new h5 versions
+
+# TODO !!!!! why 'left-right': '10/39' only for session1? check left-right on-task epoching code
+#   num of events successful/originally: {'left': '32/36', 'right': '36/39', 'left-right': '10/39', 'nothing': '36/36'}
+#   consistently: num of events successful/originally: {'left': '38/44', 'right': '20/25', 'left-right': '19/37', 'nothing': '44/44'}
 
 
 if __name__ == '__main__':
