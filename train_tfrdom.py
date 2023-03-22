@@ -111,10 +111,10 @@ def main(**kwargs):
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1},
-        eeg_chans=['C3', 'C4'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
+        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
+        eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
         prep_std_params=dict(factor_new=1e-3, init_block_size=500),
-        crop_t=(None, None),
+        crop_t=(-.2, None),
         rm_cz=True,
         erds_band=(7, 13),  # None | (min_hz, max_hz)
 
@@ -227,15 +227,15 @@ if __name__ == '__main__':
     torch.use_deterministic_algorithms(True)
 
     models_to_try = [
-        # ShallowFBCSPNet,
+        ShallowFBCSPNet,
         Deep4Net,
-        # EEGInception,
-        # EEGITNet,
-        # EEGNetv1,
-        # EEGNetv4,
-        # HybridNet,
-        # EEGResNet,
-        # TIDNet
+        EEGInception,
+        EEGITNet,
+        EEGNetv1,
+        EEGNetv4,
+        HybridNet,
+        EEGResNet,
+        TIDNet
     ]
 
     # left out: TCN, SleepStager..., USleep, TIDNet
@@ -252,7 +252,6 @@ if __name__ == '__main__':
             print('=' * 80)
             pprint(metricz)
         except Exception as e:
-            raise e
             print(e, file=sys.stderr)
             fails.append(model.__name__)
 
@@ -262,46 +261,3 @@ if __name__ == '__main__':
     print('best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
     print('best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])
     print('fails:', fails, file=sys.stderr)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

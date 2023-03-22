@@ -573,8 +573,8 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
 
 def main(
-    subject='0717b399',  # 0717b399 | 6808dfab
-    session_ids=range(1, 9),  # range(1, 9) | range(1, 4)
+    subject='6808dfab',  # 0717b399 | 6808dfab
+    session_ids=range(1, 4),  # range(1, 9) | range(1, 4)
     freqs=np.logspace(np.log(2), np.log(50), num=100, base=np.e),  # linear: np.arange(2, 50, 0.2)
     n_cycles=None,
     tfr_mode='multitaper',  # cwt | multitaper: multitaper is smoother on time
