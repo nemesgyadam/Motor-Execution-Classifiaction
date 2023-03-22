@@ -1,8 +1,7 @@
-import sys
-
 import mne
 import h5py
 import pickle
+import sys
 
 from functools import partial
 import torch
@@ -14,6 +13,7 @@ from braindecode.models import *
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 from braindecode.preprocessing import exponential_moving_standardize, preprocess, Preprocessor
 from copy import deepcopy
+import matplotlib.pyplot as plt
 
 import lightning as L
 from torch.nn import Linear, CrossEntropyLoss, NLLLoss
@@ -25,20 +25,10 @@ import random
 import wandb
 from pprint import pprint
 
-
-class GatherMetrics(Callback):
-    """PyTorch Lightning metric callback."""
-
-    def __init__(self):
-        super().__init__()
-        self.metrics = []
-
-    def on_validation_epoch_end(self, trainer, pl_module):
-        each_me = deepcopy(trainer.callback_metrics)
-        self.metrics.append(each_me)
+from braindecode_train_tdom import BrainDecodeClassification, GatherMetrics
 
 
-class EEGTimeDomainDataset(Dataset):
+class EEGTfrDomainDataset(Dataset):
 
     def __init__(self, streams_path, meta_path, cfg):
         streams_data = h5py.File(streams_path, 'r')
@@ -50,20 +40,33 @@ class EEGTimeDomainDataset(Dataset):
         crop_t = cfg['crop_t']
         crop_t = (crop_def[0] if crop_t[0] is None else crop_t[0], crop_def[1] if crop_t[1] is None else crop_t[1])
         times = streams_data.attrs['on_task_times'][:]
-        within_window = (crop_t[0] < times) & (times < crop_t[1])
         on_task_events = streams_data['on_task_events'][:][:, 2]
 
+        freqs = streams_data.attrs['freqs']
+        times = streams_data.attrs['on_task_times'][:]
+        on_task_events = streams_data['on_task_events'][:][:, 2]
+        session_ids = streams_data.attrs['session_ids'][:]
+
         eeg_info = meta_data['eeg_info']
+        event_dict = meta_data['event_dict']
         task_event_ids = meta_data['task_event_ids']
 
         event_id_to_cls = {task_event_ids[ev]: cls for ev, cls in cfg['events_to_cls'].items()}
 
-        # select task relevant epochs
-        epochs = streams_data['epochs_on_task'][:]
+        # select task relevant epochs  # TODO move this into dataset init
+        epochs = streams_data['tfr_epochs_on_task'][:]
         relevant_epochs = np.logical_or.reduce([on_task_events == task_event_ids[ev]
                                                 for ev in cfg['events_to_cls'].keys()])
         epochs = epochs[relevant_epochs, ...]
         events = on_task_events[relevant_epochs]
+
+        # remove cz from c3 and c4
+        if cfg['rm_cz']:
+            cz_i = eeg_info['ch_names'].index('Cz')
+            c3_i = eeg_info['ch_names'].index('C3')
+            c4_i = eeg_info['ch_names'].index('C4')
+            epochs[:, c3_i] = 2 * epochs[:, c3_i] - epochs[:, cz_i]
+            epochs[:, c4_i] = 2 * epochs[:, c4_i] - epochs[:, cz_i]
 
         # pick channels
         relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
@@ -73,67 +76,32 @@ class EEGTimeDomainDataset(Dataset):
         mapper = np.vectorize(lambda x: event_id_to_cls[x])
         events_cls = mapper(events)
 
-        assert len(epochs) == len(events_cls)
-        self.epochs = epochs[..., within_window]
-        self.events_cls = events_cls
-        # self.norm = Compose([ToTensor(), Normalize([.5] * epochs.shape[1], [.5] * epochs.shape[1])])
+        # crop time window
+        within_window = (crop_t[0] <= times) & (times <= crop_t[1])
+        epochs = epochs[..., within_window]
 
-        # standardize by epoch
-        means = self.epochs.mean(axis=-1, keepdims=True)
-        stds = self.epochs.std(axis=-1, keepdims=True)
-        self.epochs = (self.epochs - means) / stds
+        # compute erds
+        if cfg['erds_band'] is not None:
+            within_freq_window = (cfg['erds_band'][0] <= freqs) & (freqs <= cfg['erds_band'][1])
+            epochs = epochs[:, :, within_freq_window].mean(axis=2)
+
+        assert len(epochs) == len(events_cls)
+        self.epochs = epochs
+        self.events_cls = events_cls
+
+        # debug plots:
+        # i=202; ev=events_cls[i]; plt.plot(epochs[i][0], ['--', '-'][ev], label='C3'); plt.plot(epochs[i][1], ['-', '--'][ev], label='C4'); plt.legend(); plt.title(ev); plt.show()
+
+        # by channel (across trials) standardization
+        means = 0  # self.epochs.mean(axis=(0, 2), keepdims=True)  TODO test
+        stds = epochs.std(axis=(0, 2), keepdims=True)  # self.epochs.std(axis=-1, keepdims=True)
+        self.epochs = (self.epochs - means) / stds  # normalized already
 
     def __getitem__(self, index) -> T_co:
         return self.epochs[index], torch.as_tensor(self.events_cls[index], dtype=torch.int64)
 
     def __len__(self):
         return len(self.epochs)
-
-
-class BrainDecodeClassification(L.LightningModule):
-    def __init__(self, model, cfg):
-        super().__init__()
-        self.cfg = cfg
-        self.model = model
-        self.loss_fun = cfg['loss_fun']()
-        self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=len(cfg['events_to_cls']))
-
-        self.model.requires_grad_(True)
-        print(self.model)
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        yy = self.model(x)
-
-        # window is smaller than the epoch
-        if len(yy.shape) == 3:
-            yy = yy.mean(dim=-1)
-
-        loss = self.loss_fun(yy, y)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        yy = self.model(x)
-        if len(yy.shape) == 3:
-            yy = yy.mean(dim=-1)
-
-        loss = self.loss_fun(yy, y)
-        acc = self.accuracy(yy, y)
-
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_acc", acc, prog_bar=True)
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.cfg['init_lr'])
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=3, verbose=True, factor=0.2
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val_loss",
-        }
 
 
 def main(**kwargs):
@@ -144,9 +112,11 @@ def main(**kwargs):
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1},
-        eeg_chans=['C3', 'C4', 'Cz'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
+        eeg_chans=['C3', 'C4'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
         prep_std_params=dict(factor_new=1e-3, init_block_size=500),
-        crop_t=(0, None),
+        crop_t=(None, None),
+        rm_cz=True,
+        erds_band=(7, 13),  # None | (min_hz, max_hz)
 
         batch_size=8,
         num_workers=0,
@@ -178,8 +148,10 @@ def main(**kwargs):
     meta_path = f'{cfg["data_ver"]}/{cfg["subject"]}/{cfg["subject"]}_meta.pckl'
 
     # manual data loading  # TODO by-session splitting
-    data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
-    train_ds, valid_ds = random_split(data, [cfg['train_data_ratio'], 1 - cfg['train_data_ratio']])
+    gen = torch.Generator()
+    gen.manual_seed(42)
+    data = EEGTfrDomainDataset(streams_path, meta_path, cfg)
+    train_ds, valid_ds = random_split(data, [cfg['train_data_ratio'], 1 - cfg['train_data_ratio']], generator=gen)
 
     # init dataloaders
     dl_params = dict(num_workers=cfg['num_workers'], prefetch_factor=cfg['prefetch_factor'],
@@ -210,7 +182,7 @@ def main(**kwargs):
 
     # train
     classif = BrainDecodeClassification(model, cfg)
-    model_name = f'braindecode_{model.__class__.__name__}'
+    model_name = f'tfr_braindecode_{model.__class__.__name__}'
     model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
 
     gather_metrics = GatherMetrics()
@@ -256,8 +228,8 @@ if __name__ == '__main__':
 
     models_to_try = [
         # ShallowFBCSPNet,
-        # Deep4Net,
-        EEGInception,
+        Deep4Net,
+        # EEGInception,
         # EEGITNet,
         # EEGNetv1,
         # EEGNetv4,
@@ -273,13 +245,14 @@ if __name__ == '__main__':
         try:
             metrics = main(model_cls=model, batch_size=8)
             metricz[model.__name__] = metrics
-            print('='*80)
+            print('=' * 80)
             print('=' * 80)
             print(model.__name__, '|', metrics)
             print('=' * 80)
             print('=' * 80)
             pprint(metricz)
         except Exception as e:
+            raise e
             print(e, file=sys.stderr)
             fails.append(model.__name__)
 
@@ -289,3 +262,46 @@ if __name__ == '__main__':
     print('best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
     print('best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])
     print('fails:', fails, file=sys.stderr)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
