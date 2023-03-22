@@ -155,12 +155,6 @@ def main(**kwargs):
 
     event_id_to_cls = {task_event_ids[ev]: cls for ev, cls in cfg['events_to_cls'].items()}
 
-    # # load by epochs
-    # epochs = load_epochs_for_subject(output_path, epoch_type='epochs_on_task')  # or ...
-    # epochs = mne.EpochsArray(streams_data['epochs_on_task'][:], eeg_info,
-    #                          events=on_task_events, event_id=meta_data['task_event_ids'])
-    # create_from_mne_epochs([epochs], ...)
-
     # select task relevant epochs  # TODO move this into dataset init
     epochs = streams_data['epochs_on_task'][:]
     relevant_epochs = np.logical_or.reduce([on_task_events == task_event_ids[ev]
@@ -175,37 +169,6 @@ def main(**kwargs):
     # load as X, y into braindecode
     mapper = np.vectorize(lambda x: event_id_to_cls[x])
     events_cls = mapper(events)
-
-    # # ps to braindecode: THIS DOES NOT FUCKING WORK, FOR GODS SAKE, TEST THIS SHIT YOU DUMP FUCKS
-    # data = create_from_X_y(epochs, events_cls, sfreq=eeg_info['sfreq'], ch_names=cfg['eeg_chans'],
-    #                        drop_last_window=False)
-    # data.set_description(data.description.assign(session=session_ids), overwrite=True)
-    #
-    # # preprocessing
-    # preprocessors = [Preprocessor(exponential_moving_standardize, **cfg['prep_std_params'])]
-    # [d.windows.load_data() for d in data.datasets]
-    #
-    # eeg_kind = eeg_info['chs'][0]['kind']
-    # for d in data.datasets:
-    #     for ch in range(len(d.windows.info['chs'])):
-    #         d.windows.info['chs'][ch]['kind'] = eeg_kind
-    #     # d.windows.info['chs'][0]['kind'] = mne.utils._bunch.NamedInt('eeg')
-    #
-    # data = preprocess(data, preprocessors, cfg['num_workers'] if cfg['num_workers'] > 0 else None)
-    #
-    # # split dataset
-    # train_sess_ids = range(1, 7)
-    # valid_sess_ids = range(7, 8)  # TODO rm 8, too noisy?
-    # train_sess = np.logical_or.reduce([session_ids == i for i in train_sess_ids])
-    # valid_sess = np.logical_or.reduce([session_ids == i for i in valid_sess_ids])
-    # split_ids = np.array(['none'] * len(session_ids), dtype='<U5')
-    # split_ids[train_sess] = 'train'
-    # split_ids[valid_sess] = 'valid'
-    # data.set_description(data.description.assign(split_id=split_ids), overwrite=True)
-    #
-    # splits = data.split('split_id')
-    # train_ds = splits['train']
-    # valid_ds = splits['valid']
 
     # manual data loading  # TODO by-session splitting
     data = EEGTimeDomainDataset(epochs, events_cls)
@@ -235,13 +198,7 @@ def main(**kwargs):
     )
 
     model = cfg['model_cls'](
-        # in_chans=len(cfg['eeg_chans']),
-        # n_classes=n_classes,
-        # input_window_samples=data[0][0].shape[1],
         **model_params[cfg['model_cls'].__name__],
-        # final_conv_length=cfg['final_conv_length'],
-        # input_window_samples=None,  # TODO more finetuning
-        # final_conv_length=30,
     )
 
     # train
@@ -282,24 +239,6 @@ def main(**kwargs):
     min_val_loss = min([m['val_loss'].item() for m in gather_metrics.metrics])
     max_acc = max([m['val_acc'].item() for m in gather_metrics.metrics])
     return dict(min_val_loss=min_val_loss, max_acc=max_acc)
-
-
-    # clf = EEGClassifier(
-    #     model,
-    #     cropped=False,
-    #     criterion=torch.nn.NLLLoss,
-    #     # criterion__loss_function=torch.nn.functional.nll_loss,
-    #     optimizer=torch.optim.AdamW,
-    #     train_split=predefined_split(valid_set),
-    #     optimizer__lr=lr,
-    #     optimizer__weight_decay=weight_decay,
-    #     iterator_train__shuffle=True,
-    #     batch_size=batch_size,
-    #     callbacks=[
-    #         "accuracy", ("lr_scheduler", LRScheduler('CosineAnnealingLR', T_max=n_epochs - 1)),
-    #     ],
-    #     device=device,
-    # )
 
 
 if __name__ == '__main__':
