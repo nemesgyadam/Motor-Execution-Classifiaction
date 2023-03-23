@@ -366,7 +366,7 @@ def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
     tfr_epochs_on_task.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_task=epochs_on_task, tfr_epochs_on_task=tfr_epochs_on_task,
-                on_task_times=tfr_epochs_on_task.times, task_event_ids=task_event_ids,
+                on_task_times=tfr_epochs_on_task.times, task_event_ids=task_event_ids, task_baseline=baseline,
                 on_task_events=epochs_on_task.events, on_task_drop_log=epochs_on_task.drop_log)
 
 
@@ -404,7 +404,7 @@ def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
     tfr_epochs_on_pull.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_pull=epochs_on_pull, tfr_epochs_on_pull=tfr_epochs_on_pull,
-                on_pull_times=tfr_epochs_on_pull.times, pull_event_ids=pull_event_ids,
+                on_pull_times=tfr_epochs_on_pull.times, pull_event_ids=pull_event_ids, pull_baseline=baseline,
                 on_pull_events=epochs_on_pull.events, on_pull_drop_log=epochs_on_pull.drop_log)
 
 
@@ -416,8 +416,8 @@ def epoch_on_break(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), 
     with open(exp_cfg_path, 'rt') as f:
         exp_cfg = json.load(f)
 
-    break_event_id = dict(brk=prep_results['success_markers']['break'])
-    epochs_on_break = mne.Epochs(filt_raw_eeg, all_events, event_id=break_event_id, baseline=None, verbose=verbose,
+    break_event_ids = dict(brk=prep_results['success_markers']['break'])
+    epochs_on_break = mne.Epochs(filt_raw_eeg, all_events, event_id=break_event_ids, baseline=None, verbose=verbose,
                                  tmin=-exp_cfg['event-duration']['task'][0] / 2,
                                  tmax=exp_cfg['event-duration']['break'][0])
 
@@ -439,7 +439,7 @@ def epoch_on_break(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), 
     tfr_epochs_on_break.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_break=epochs_on_break, tfr_epochs_on_break=tfr_epochs_on_break,
-                on_break_times=tfr_epochs_on_break.times, break_event_id=break_event_id,
+                on_break_times=tfr_epochs_on_break.times, break_event_ids=break_event_ids, break_baseline=baseline,
                 on_break_events=epochs_on_break.events, on_break_drop_log=epochs_on_break.drop_log)
 
 
@@ -547,7 +547,7 @@ def process_eyes_open_closed(raw: mne.io.Raw, events: np.ndarray, info: mne.Info
 
 
 def combined_session_analysis(subject, streams_path, meta_path, output_path, channels=('C3', 'Cz', 'C4'),
-                              norm_c34_w_cz=False, verbose=False):
+                              norm_c34_w_cz=False, verbose=False, part='task'):
     # load hdf5 + meta data and run gen_erds_plots
     streams_data = h5py.File(streams_path, 'r')
 
@@ -556,69 +556,73 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
     eeg_info = meta_data['eeg_info']
     freqs = streams_data.attrs['freqs']
-    times = streams_data.attrs['on_task_times'][:]
-
-    # epochs = load_epochs_for_subject(output_path, epoch_type='epochs_on_task')
-    # events = streams_data['events'][:]
-    on_task_events = streams_data['on_task_events'][:]
-    # on_task_events_i = np.logical_or.reduce([events[:, 2] == teid for teid in meta_data['task_event_ids'].values()], axis=0)
-    # on_task_events = events[on_task_events_i, :]
+    times = streams_data.attrs[f'on_{part}_times'][:]
+    on_task_events = streams_data[f'on_{part}_events'][:]
 
     # C3-Cz, C4-Cz
-    tfr = streams_data['tfr_epochs_on_task'][:]
+    tfr = streams_data[f'tfr_epochs_on_{part}'][:]
     if norm_c34_w_cz:
-        cz = tfr[:, eeg_info['ch_names'].index('Cz')]
-        tfr[:, eeg_info['ch_names'].index('C3')] = 2 * tfr[:, eeg_info['ch_names'].index('C3')] - cz
-        tfr[:, eeg_info['ch_names'].index('C4')] = 2 * tfr[:, eeg_info['ch_names'].index('C4')] - cz
+        cz_i = eeg_info['ch_names'].index('Cz')
+        c3_i = eeg_info['ch_names'].index('C3')
+        c4_i = eeg_info['ch_names'].index('C4')
+        tfr[:, c3_i] = 2 * tfr[:, c3_i] - tfr[:, cz_i]
+        tfr[:, c4_i] = 2 * tfr[:, c4_i] - tfr[:, cz_i]
 
-    # pick channels, downsample time
+    # pick channels, down-sample time
     tfr = tfr[..., ::2]
     times = times[::2]
+
     epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr, times, freqs,
-                                          verbose=verbose, events=on_task_events, event_id=meta_data['task_event_ids'])
-    # epochs = epochs[:100]
-    gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined',
+                                          verbose=verbose, events=on_task_events, event_id=meta_data[f'{part}_event_ids'])
+    gen_erds_plots(epochs, subject, meta_data[f'{part}_event_ids'],
+                   out_folder=f'{output_path}/figures/combined_{part}_c34-cz-{norm_c34_w_cz}',
                    freqs=freqs, comp_time_freq=True, comp_tf_clusters=False, channels=channels,
-                   baseline=meta_data['baseline'], apply_baseline=False, copy=False)
+                   baseline=meta_data[f'{part}_baseline'], apply_baseline=False, copy=False)
 
     # tf clustering can only be done when the 'percent' baselining option is used
     # percent scales the tfr data into having negative and positive values, which is then used in the plotting
     #   function to determine significant positive (synchronization) or negative (desync) values
     if meta_data['tfr_baseline_mode'] == 'percent':
-        gen_erds_plots(epochs, subject, meta_data['task_event_ids'], out_folder=f'{output_path}/figures/combined_clust',
-                       freqs=freqs, comp_time_freq=True, comp_tf_clusters=True, channels=channels,
-                       baseline=meta_data['baseline'], apply_baseline=False, copy=False)
+        gen_erds_plots(epochs, subject, meta_data[f'{part}_event_ids'],
+                       out_folder=f'{output_path}/figures/combined_clust_{part}_c34-cz-{norm_c34_w_cz}', freqs=freqs,
+                       comp_time_freq=True, comp_tf_clusters=True, channels=channels,
+                       baseline=meta_data[f'{part}_baseline'], apply_baseline=False, copy=False)
 
     streams_data.close()
 
 
 def main(
-    subject='6808dfab',  # 0717b399 | 6808dfab
-    session_ids=range(1, 4),  # range(1, 9) | range(1, 4)
-    freqs=np.logspace(np.log(2), np.log(50), num=100, base=np.e),  # linear: np.arange(2, 50, 0.2)
+    subject='0717b399',  # 0717b399 | 6808dfab
+    session_ids=range(1, 9),  # range(1, 9) | range(1, 4)
+    freq_rng=(2, 80),  # min and max frequency to sample (see how below)
+    nfreq=100,  # number of frequency to sample in freq_rng
     n_cycles=None,
     tfr_mode='multitaper',  # cwt | multitaper: multitaper is smoother on time
-    do_plot=False,
+    do_plot=False,  # slows processing down a lot
     n_jobs=6,
     verbose=False,
-    rerun_proc=False,
+    rerun_proc=False,  # whether to run preprocessiong regardless the h5 file is already created or not
     bandpass_freq=(.5, 80),
     notch_freq=(50, 100),
-    baseline=(-1, -.05),  # on task; don't use -1.5, remove parts related to the beep; -0.05
-    eeg_sfreq=250, gamepad_sfreq=125,  # hardcoded for now
-    reaction_tmax=0.5,
-    store_per_session_recs=False,
+    baseline=(-1, -.05),  # normalize signal according to the baseline interval
+    eeg_sfreq=250, gamepad_sfreq=125,  # sampling frequencies
+    reaction_tmax=0.5,  # max amount of time between cue and gamepad trigger pull allowed in sec
+    store_per_session_recs=False,  # store extra preprocessed fif and h5 files, native to mne
+    # see: https://mne.tools/stable/generated/mne.time_frequency.EpochsTFR.html#mne.time_frequency.EpochsTFR.apply_baseline
     tfr_baseline_mode='percent',
-    filter_percentile=95,
-    combined_anal_channels=('C3', 'Cz', 'C4'),
-    norm_c34_w_cz=False,
+    filter_percentile=95,  # filter out too large within-epoch, peak-to-peak signal differences (noisy epochs)
+    combined_anal_channels=('C3', 'Cz', 'C4'),  # only affects the combined plots, defines the channels to show
+    norm_c34_w_cz=False,  # whether to remove the time frequency signal of Cz from C3 and C4, only when plotting
 ):
+
+    assert bandpass_freq[0] <= freq_rng[0] and freq_rng[1] <= bandpass_freq[1]
+    freqs = np.logspace(np.log(freq_rng[0]), np.log(freq_rng[1]), num=nfreq, base=np.e)
 
     recordings_path = '../recordings'
     exp_cfg_path = 'config/lr_finger/exp_me_l_r_lr_stim-w-dots.json'
     # output_path = f'out/{subject}'
     output_path = f'out_bl{baseline[0]}-{baseline[1]}_tfr-{tfr_mode}-{tfr_baseline_mode}_reac-{reaction_tmax}' \
-                  f'_bad-{filter_percentile}_c34-{norm_c34_w_cz}/{subject}'
+                  f'_bad-{filter_percentile}_f-{freq_rng[0]}-{freq_rng[1]}-{nfreq}/{subject}'
     meta_path = f'{output_path}/{subject}_meta.pckl'
     streams_path = f'{output_path}/{subject}_streams.h5'
     os.makedirs(output_path, exist_ok=True)
@@ -648,7 +652,9 @@ def main(
 
         # process sessions one-by-one
         num_epochs = []
-        meta_names = ['eeg_info', 'event_dict', 'on_task_times', 'task_event_ids', 'break_event_id', 'eeg_ch_names']
+        meta_names = ['eeg_info', 'event_dict', 'on_task_times', 'task_event_ids', 'break_event_ids', 'eeg_ch_names',
+                      'pull_event_ids', 'on_pull_times', 'on_break_times', 'task_baseline', 'pull_baseline',
+                      'break_baseline']
         meta_data = {name: None for name in meta_names}
         meta_data['iafs'] = []  # individual alpha freq for each session
         meta_data['baseline'] = baseline
@@ -717,17 +723,21 @@ def main(
 
             # store individual session files
             raw_path = f'{output_path}/{subject}_{sid:03d}_raw-eeg.fif'
-            epochs_path = f'{output_path}/{subject}_{sid:03d}_epochs_on_task-epo.fif'
-            tfr_epochs_path = f'{output_path}/{subject}_{sid:03d}_epochs_on_task-tfr.h5'
 
             if store_per_session_recs:
                 sess['filt_raw_eeg'].save(raw_path, overwrite=True, verbose=verbose)
-                sess['epochs_on_task'].save(epochs_path, overwrite=True, verbose=verbose)
-                sess['tfr_epochs_on_task'].save(tfr_epochs_path, overwrite=True, verbose=verbose)
+
+                for part in ['epochs_on_task', 'epochs_on_pull', 'epochs_on_break']:
+                    epochs_path = f'{output_path}/{subject}_{sid:03d}_{part}-epo.fif'
+                    tfr_epochs_path = f'{output_path}/{subject}_{sid:03d}_{part}-tfr.h5'
+                    sess[part].save(epochs_path, overwrite=True, verbose=verbose)
+                    sess[f'tfr_{part}'].save(tfr_epochs_path, overwrite=True, verbose=verbose)
 
         streams_data.attrs['num_epochs'] = num_epochs
         streams_data.attrs['session_ids'] = sum([[sid] * num_epochs[i] for i, sid in enumerate(session_ids)], [])
         streams_data.attrs['on_task_times'] = meta_data['on_task_times']
+        streams_data.attrs['on_pull_times'] = meta_data['on_pull_times']
+        streams_data.attrs['on_break_times'] = meta_data['on_break_times']
         streams_data.attrs['freqs'] = meta_data['freqs']
 
         streams_data.close()
@@ -739,7 +749,11 @@ def main(
 
     # analysis, plots generated from all the sessions of one subject
     combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
-                              norm_c34_w_cz, verbose)
+                              norm_c34_w_cz, verbose, 'task')
+    combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
+                              norm_c34_w_cz, verbose, 'pull')
+    combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
+                              norm_c34_w_cz, verbose, 'break')
 
 
 # TODO upload new h5 versions
@@ -751,9 +765,20 @@ def main(
 
 if __name__ == '__main__':
 
-    main(do_plot=False, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    # main(do_plot=False, rerun_proc=False, tfr_mode='cwt', freqs=np.logspace(np.log(4), np.log(50), num=100, base=np.e),
-    #      combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    main(subject='0717b399', session_ids=range(1, 9),
+         do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+
+    main(subject='6808dfab', session_ids=range(1, 4),
+         do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+
+
+    main(subject='0717b399', session_ids=range(1, 9),
+         do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+
+    main(subject='6808dfab', session_ids=range(1, 4),
+         do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+
+    # TESTED:
 
     # baseline
     # main(baseline=(-1, -.1), do_plot=True)
@@ -765,7 +790,6 @@ if __name__ == '__main__':
     # main(tfr_mode='cwt', do_plot=True, freqs=np.logspace(np.log(4), np.log(50), num=100, base=np.e))
 
     # tfr_baseline_mode
-    # TODO don't try logratio
     # main(tfr_baseline_mode='ratio', do_plot=True)
     # main(tfr_baseline_mode='zscore', do_plot=True)
     # main(tfr_baseline_mode='zlogratio', do_plot=True)

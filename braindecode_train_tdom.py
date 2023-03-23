@@ -137,27 +137,29 @@ class BrainDecodeClassification(L.LightningModule):
 
 
 def main(**kwargs):
-    # load streams
+
     cfg = dict(
         subject='0717b399',
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',
+        # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-80-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
-        prep_std_params=dict(factor_new=1e-3, init_block_size=500),
-        crop_t=(-.2, None),
+        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
+        eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
+        crop_t=(-.2, None),  # the part of the epoch to include
 
         batch_size=8,
         num_workers=0,
         prefetch_factor=2,
         accumulate_grad_batches=1,
-        precision=32,
+        precision=32,  # 16 | 32
         gradient_clip_val=1,
         loss_fun=NLLLoss,
 
-        model_cls=ShallowFBCSPNet,
-        # input_window_samples=100,   # TODO set to epoch len now
+        model_cls=ShallowFBCSPNet,  # default model
+        # number of samples to include in each window of the decoder - now set to the full recording length
+        # input_window_samples=100,
         final_conv_length='auto',
 
         dev='cuda',
@@ -166,7 +168,7 @@ def main(**kwargs):
 
         epochs=100,
         init_lr=1e-3,
-        train_data_ratio=.85,
+        train_data_ratio=.85,  # ratio of training data, the rest is validation
     )
     cfg.update(kwargs)
     pprint(cfg)
@@ -191,16 +193,23 @@ def main(**kwargs):
     # init model
     n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
 
+    # each model has its own parameter set, braindecode is fucked up, this per model parametrization is necessary
+    # https://braindecode.org/stable/api.html#models
     iws = data[0][0].shape[1]
     model_params = dict(  # what a marvelously fucked up library
-        ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
-        Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
+        ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                             final_conv_length=cfg['final_conv_length']),
+        Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                      final_conv_length=cfg['final_conv_length']),
         EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=250),
         EEGITNet=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-        EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
-        EEGNetv4=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
+        EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                      final_conv_length=cfg['final_conv_length']),
+        EEGNetv4=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                      final_conv_length=cfg['final_conv_length']),
         HybridNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-        EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, n_first_filters=16, final_pool_length=8),
+        EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                       n_first_filters=16, final_pool_length=8),
         TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
     )
 

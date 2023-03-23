@@ -105,14 +105,14 @@ class EEGTfrDomainDataset(Dataset):
 
 
 def main(**kwargs):
-    # load streams
+
     cfg = dict(
         subject='0717b399',
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-80-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
+        events_to_cls={'left': 0, 'right': 1},
+        eeg_chans=['C3', 'Cz', 'C4'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'Cz', 'C4']
         prep_std_params=dict(factor_new=1e-3, init_block_size=500),
         crop_t=(-.2, None),
         rm_cz=True,
@@ -163,6 +163,7 @@ def main(**kwargs):
     # init model
     n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
 
+    # https://braindecode.org/stable/api.html#models
     iws = data[0][0].shape[1]
     model_params = dict(  # what a marvelously fucked up library
         ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
