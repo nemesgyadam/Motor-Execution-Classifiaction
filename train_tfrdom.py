@@ -99,9 +99,16 @@ class EEGTfrDomainDataset(Dataset):
                 epochs = epochs.reshape((epochs.shape[0], epochs.shape[1] * len(cfg['erds_bands']), epochs.shape[-1]))
 
         # debug plots:
-        # i=202; ev=events_cls[i]; plt.plot(epochs[i][0], ['--', '-'][ev], label='C3'); plt.plot(epochs[i][1], ['-', '--'][ev], label='C4'); plt.legend(); plt.title(ev); plt.show()
+        # i=1; ev=events_cls[i]; plt.plot(epochs[i][0], ['--', '-', '--', '--'][ev], label='C3'); plt.plot(epochs[i][1], ['-', '--', '--', '--'][ev], label='C4'); plt.legend(); plt.title(ev); plt.show()
 
-        # by channel (across trials and time) standardization
+        # alpha left/right/c3/c4; channel order: c3, c4, cz; merge_bands_into_chans=False
+        # plt.plot(epochs[events_cls==1, 0, 1, :].mean(axis=0), label='C3-alpha-right'); plt.plot(epochs[events_cls==0, 1, 1, :].mean(axis=0), label='C4-alpha-left');
+        # plt.plot(epochs[events_cls==0, 0, 1, :].mean(axis=0), '--', label='C3-alpha-left'); plt.plot(epochs[events_cls==1, 1, 1, :].mean(axis=0), '--', label='C4-alpha-right');
+        # plt.legend(); plt.show()
+
+
+
+        # by channel (across trials and time) standardization TODO validation normalization leaks into training
         std_over = (0, 2, 3) if cfg['erds_bands'] is None else (0, 2)
         means = epochs.mean(axis=std_over, keepdims=True)
         stds = epochs.std(axis=std_over, keepdims=True)  # self.epochs.std(axis=-1, keepdims=True)
@@ -125,12 +132,11 @@ def main(**kwargs):
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-80-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1},
-        eeg_chans=['C3', 'Cz', 'C4'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'Cz', 'C4']
-        prep_std_params=dict(factor_new=1e-3, init_block_size=500),
+        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
+        eeg_chans=['C3', 'C4', 'Cz'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'Cz', 'C4']
         crop_t=(-.2, None),
         rm_cz=True,
-        erds_bands=[(2, 7), (7, 13), (13, 30)],  # None | (min_hz, max_hz)
+        erds_bands=[(4, 7), (7, 13), (13, 40)],  # None | [(min_hz, max_hz), ...]
         merge_bands_into_chans=True,
         resize_t=None,  # resize time dim
         resize_f=None,  # resize freq dim
@@ -262,8 +268,7 @@ if __name__ == '__main__':
     metricz = {}
     fails = []
     for model in models_to_try:
-        # try:
-        if True:
+        try:
             metrics = main(model_cls=model, batch_size=8)
             metricz[model.__name__] = metrics
             print('=' * 80)
@@ -272,9 +277,9 @@ if __name__ == '__main__':
             print('=' * 80)
             print('=' * 80)
             pprint(metricz)
-        # except Exception as e:
-        #     print(e, file=sys.stderr)
-        #     fails.append(model.__name__)
+        except Exception as e:
+            print(e, file=sys.stderr)
+            fails.append(model.__name__)
 
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
