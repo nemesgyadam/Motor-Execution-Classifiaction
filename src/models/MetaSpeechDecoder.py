@@ -10,10 +10,53 @@ import torch.nn.functional as F
 from termcolor import cprint
 from einops import rearrange
 
-
+import yaml
 import mne
 import numpy as np
 import torch
+
+
+# from: https://github.com/arayabrain/speech-decoding/blob/main/configs/config.yaml
+DEF_CFG = {
+    'D1': 270,
+    'D2': 320,
+    'F': 512,
+    'K': 32,
+    'batch_size': 64,
+    'd_drop': 0.3,
+    'dataset': 'Brennan2018',
+    'epochs': 3500,
+    'hydra': {'job': {'chdir': True}},
+    'init_temperature': 5.1,
+    'lr': '3e-4',
+    'lr_exp_gamma': 0.99,
+    'lr_multistep_mlstns': [0.4, 0.6, 0.8, 0.9],
+    'lr_scheduler': 'multistep',
+    'lr_step_gamma': 0.5,
+    'lr_step_numsteps': 5,
+    'num_workers': 6,
+    'preprocs': {'audio_resample_rate': 16000,
+                 'baseline_len_sec': 0.5,
+                 'brain_filter_high': 60,
+                 'brain_filter_low': 1.0,
+                 'brain_resample_rate': 120,
+                 'clamp': True,
+                 'clamp_lim': 20,
+                 'last4layers': True,
+                 'lowpass_filter_width': 128,
+                 'seq_len_sec': 3,
+                 'shift_brain': True,
+                 'shift_len': 150,
+                 'subject_wise': True},
+    'rebuild_dataset': False,
+    'reduction': 'mean',
+    'reproducible': False,
+    'updates': 1200,
+    'use_sampler': True,
+    'use_wandb': False,
+    'wandb': {'entity': 'nightdude', 'project': 'speech_decoding'},
+    'wav2vec_model': 'facebook/wav2vec2-large-xlsr-53'
+}
 
 
 def ch_locations_2d(info):
