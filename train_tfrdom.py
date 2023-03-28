@@ -14,6 +14,7 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, Learning
 from braindecode.preprocessing import exponential_moving_standardize, preprocess, Preprocessor
 from copy import deepcopy
 import matplotlib.pyplot as plt
+from skimage.transform import resize
 
 import lightning as L
 from torch.nn import Linear, CrossEntropyLoss, NLLLoss
@@ -39,8 +40,6 @@ class EEGTfrDomainDataset(Dataset):
         crop_def = (-np.inf, np.inf)
         crop_t = cfg['crop_t']
         crop_t = (crop_def[0] if crop_t[0] is None else crop_t[0], crop_def[1] if crop_t[1] is None else crop_t[1])
-        times = streams_data.attrs['on_task_times'][:]
-        on_task_events = streams_data['on_task_events'][:][:, 2]
 
         freqs = streams_data.attrs['freqs']
         times = streams_data.attrs['on_task_times'][:]
@@ -80,10 +79,18 @@ class EEGTfrDomainDataset(Dataset):
         within_window = (crop_t[0] <= times) & (times <= crop_t[1])
         epochs = epochs[..., within_window]
 
+        # resample
+        if cfg['resize_t'] or cfg['resize_f']:
+            res_t = cfg['resize_t'] or epochs.shape[-1]
+            res_f = cfg['resize_f'] or epochs.shape[-2]
+            times = resize(times, (res_t,), preserve_range=True, clip=True)
+            freqs = resize(freqs, (res_f,), preserve_range=True, clip=True)
+            epochs = resize(epochs, (*epochs.shape[:2], res_f, res_t), preserve_range=True, clip=True)
+
         # compute erds
         if cfg['erds_band'] is not None:
             within_freq_window = (cfg['erds_band'][0] <= freqs) & (freqs <= cfg['erds_band'][1])
-            epochs = epochs[:, :, within_freq_window].mean(axis=2)
+            epochs = epochs[:, :, within_freq_window, :].mean(axis=2)
 
         assert len(epochs) == len(events_cls)
         self.epochs = epochs
@@ -117,6 +124,8 @@ def main(**kwargs):
         crop_t=(-.2, None),
         rm_cz=True,
         erds_band=(7, 13),  # None | (min_hz, max_hz)
+        resize_t=None,  # resize time dim
+        resize_f=None,  # resize freq dim
 
         batch_size=8,
         num_workers=0,
