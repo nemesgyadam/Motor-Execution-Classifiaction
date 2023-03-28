@@ -87,22 +87,29 @@ class EEGTfrDomainDataset(Dataset):
             freqs = resize(freqs, (res_f,), preserve_range=True, clip=True)
             epochs = resize(epochs, (*epochs.shape[:2], res_f, res_t), preserve_range=True, clip=True)
 
-        # compute erds
-        if cfg['erds_band'] is not None:
-            within_freq_window = (cfg['erds_band'][0] <= freqs) & (freqs <= cfg['erds_band'][1])
-            epochs = epochs[:, :, within_freq_window, :].mean(axis=2)
-
-        assert len(epochs) == len(events_cls)
-        self.epochs = epochs
-        self.events_cls = events_cls
+        # compute erds - contracts the freq channel
+        if cfg['erds_bands'] is not None:
+            all_band_epochs = []
+            for erds_band in cfg['erds_bands']:
+                within_freq_window = (erds_band[0] <= freqs) & (freqs <= erds_band[1])
+                band_epochs = epochs[:, :, within_freq_window, :].mean(axis=2, keepdims=True)
+                all_band_epochs.append(band_epochs)
+            epochs = np.concatenate(all_band_epochs, axis=2)
+            if cfg['merge_bands_into_chans']:  # bands dim to chan dim
+                epochs = epochs.reshape((epochs.shape[0], epochs.shape[1] * len(cfg['erds_bands']), epochs.shape[-1]))
 
         # debug plots:
         # i=202; ev=events_cls[i]; plt.plot(epochs[i][0], ['--', '-'][ev], label='C3'); plt.plot(epochs[i][1], ['-', '--'][ev], label='C4'); plt.legend(); plt.title(ev); plt.show()
 
-        # by channel (across trials) standardization
-        means = 0  # self.epochs.mean(axis=(0, 2), keepdims=True)  TODO test
-        stds = epochs.std(axis=(0, 2), keepdims=True)  # self.epochs.std(axis=-1, keepdims=True)
-        self.epochs = (self.epochs - means) / stds  # normalized already
+        # by channel (across trials and time) standardization
+        std_over = (0, 2, 3) if cfg['erds_bands'] is None else (0, 2)
+        means = epochs.mean(axis=std_over, keepdims=True)
+        stds = epochs.std(axis=std_over, keepdims=True)  # self.epochs.std(axis=-1, keepdims=True)
+        epochs = (epochs - means) / stds  # normalized already
+
+        assert len(epochs) == len(events_cls)
+        self.epochs = epochs
+        self.events_cls = events_cls
 
     def __getitem__(self, index) -> T_co:
         return self.epochs[index], torch.as_tensor(self.events_cls[index], dtype=torch.int64)
@@ -123,7 +130,8 @@ def main(**kwargs):
         prep_std_params=dict(factor_new=1e-3, init_block_size=500),
         crop_t=(-.2, None),
         rm_cz=True,
-        erds_band=(7, 13),  # None | (min_hz, max_hz)
+        erds_bands=[(2, 7), (7, 13), (13, 30)],  # None | (min_hz, max_hz)
+        merge_bands_into_chans=True,
         resize_t=None,  # resize time dim
         resize_f=None,  # resize freq dim
 
@@ -173,17 +181,19 @@ def main(**kwargs):
     n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
 
     # https://braindecode.org/stable/api.html#models
+    in_chans = len(cfg['eeg_chans']) * len(cfg['erds_bands']) \
+        if cfg['erds_bands'] is not None and cfg['merge_bands_into_chans'] else len(cfg['eeg_chans'])
     iws = data[0][0].shape[1]
     model_params = dict(  # what a marvelously fucked up library
-        ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
-        Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
-        EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=250),
-        EEGITNet=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-        EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
-        EEGNetv4=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
-        HybridNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-        EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, n_first_filters=16, final_pool_length=8),
-        TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
+        ShallowFBCSPNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
+        Deep4Net=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
+        EEGInception=dict(in_channels=in_chans, n_classes=n_classes, input_window_samples=iws, sfreq=250),
+        EEGITNet=dict(in_channels=in_chans, n_classes=n_classes, input_window_samples=iws),
+        EEGNetv1=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
+        EEGNetv4=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws, final_conv_length=cfg['final_conv_length']),
+        HybridNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws),
+        EEGResNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws, n_first_filters=16, final_pool_length=8),
+        TIDNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws),
     )
 
     model = cfg['model_cls'](
@@ -252,7 +262,8 @@ if __name__ == '__main__':
     metricz = {}
     fails = []
     for model in models_to_try:
-        try:
+        # try:
+        if True:
             metrics = main(model_cls=model, batch_size=8)
             metricz[model.__name__] = metrics
             print('=' * 80)
@@ -261,9 +272,9 @@ if __name__ == '__main__':
             print('=' * 80)
             print('=' * 80)
             pprint(metricz)
-        except Exception as e:
-            print(e, file=sys.stderr)
-            fails.append(model.__name__)
+        # except Exception as e:
+        #     print(e, file=sys.stderr)
+        #     fails.append(model.__name__)
 
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
