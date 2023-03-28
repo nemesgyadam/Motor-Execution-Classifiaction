@@ -13,4 +13,4 @@ keys/
 .idea/
 .vscode/
 tmp/
-models/
+/models/

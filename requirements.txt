@@ -24,3 +24,4 @@ pyxdf
 
 moabb
 braindecode
+einops
