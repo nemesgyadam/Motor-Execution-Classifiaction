@@ -334,7 +334,7 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                 eeg_info=eeg_info, freqs=freqs, eeg_ch_names=eeg_ch_names)
 
 
-def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',  # cwt | multitaper
+def epoch_on_task(sess_id: int, prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
                   tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None):
     filt_raw_eeg = prep_results['filt_raw_eeg']
     all_events = prep_results['events']
@@ -367,10 +367,11 @@ def epoch_on_task(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
 
     return dict(epochs_on_task=epochs_on_task, tfr_epochs_on_task=tfr_epochs_on_task,
                 on_task_times=tfr_epochs_on_task.times, task_event_ids=task_event_ids, task_baseline=baseline,
-                on_task_events=epochs_on_task.events, on_task_drop_log=epochs_on_task.drop_log)
+                on_task_events=epochs_on_task.events, on_task_drop_log=epochs_on_task.drop_log,
+                on_task_session_idx=np.repeat(sess_id, len(epochs_on_task)))
 
 
-def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
+def epoch_on_pull(sess_id, prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
                   tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None,
                   reaction_tmax=1.):
     filt_raw_eeg = prep_results['filt_raw_eeg']
@@ -405,10 +406,11 @@ def epoch_on_pull(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), t
 
     return dict(epochs_on_pull=epochs_on_pull, tfr_epochs_on_pull=tfr_epochs_on_pull,
                 on_pull_times=tfr_epochs_on_pull.times, pull_event_ids=pull_event_ids, pull_baseline=baseline,
-                on_pull_events=epochs_on_pull.events, on_pull_drop_log=epochs_on_pull.drop_log)
+                on_pull_events=epochs_on_pull.events, on_pull_drop_log=epochs_on_pull.drop_log,
+                on_pull_session_idx=np.repeat(sess_id, len(epochs_on_pull)))
 
 
-def epoch_on_break(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
+def epoch_on_break(sess_id, prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
                    tfr_baseline_mode='percent', n_cycles=None, n_jobs=4, verbose=False, filter_percentile=None):
     filt_raw_eeg = prep_results['filt_raw_eeg']
     all_events = prep_results['events']
@@ -440,7 +442,8 @@ def epoch_on_break(prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), 
 
     return dict(epochs_on_break=epochs_on_break, tfr_epochs_on_break=tfr_epochs_on_break,
                 on_break_times=tfr_epochs_on_break.times, break_event_ids=break_event_ids, break_baseline=baseline,
-                on_break_events=epochs_on_break.events, on_break_drop_log=epochs_on_break.drop_log)
+                on_break_events=epochs_on_break.events, on_break_drop_log=epochs_on_break.drop_log,
+                on_break_session_idx=np.repeat(sess_id, len(epochs_on_break)))
 
 
 def plot_some(epoch_prep_results: dict, fig_output_path, rec_name, freqs, baseline=(None, 0),
@@ -648,10 +651,14 @@ def main(
                         'events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_task_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_pull_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
-                        'on_break_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x}}  # i know, it got out of hand
+                        'on_break_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
+
+                        'on_task_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
+                        'on_pull_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
+                        'on_break_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x}}  # i know, it got out of hand
 
         # process sessions one-by-one
-        num_epochs = []
+        # num_epochs = []
         meta_names = ['eeg_info', 'event_dict', 'on_task_times', 'task_event_ids', 'break_event_ids', 'eeg_ch_names',
                       'pull_event_ids', 'on_pull_times', 'on_break_times', 'task_baseline', 'pull_baseline',
                       'break_baseline']
@@ -662,6 +669,12 @@ def main(
         meta_data['tfr_mode'] = tfr_mode
         meta_data['freqs'] = freqs
         meta_data['filter_percentile'] = filter_percentile
+        meta_data['freq_rng'] = freq_rng
+        meta_data['nfreq'] = nfreq
+        meta_data['n_cycles'] = n_cycles
+        meta_data['bandpass_freq'] = bandpass_freq
+        meta_data['reaction_tmax'] = reaction_tmax
+        meta_data['session_ids'] = session_ids
 
         for i, sid in enumerate(session_ids):
 
@@ -679,12 +692,12 @@ def main(
             meta_data['iafs'].append(iaf)
 
             # epoch sessions
-            task_epochs_sess = epoch_on_task(sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
+            task_epochs_sess = epoch_on_task(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
                                              n_cycles, verbose=verbose, filter_percentile=filter_percentile)
-            pull_epochs_sess = epoch_on_pull(sess, exp_cfg_path, freqs, baseline, tfr_mode,
+            pull_epochs_sess = epoch_on_pull(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode,
                                              tfr_baseline_mode, n_cycles, verbose=verbose,
                                              filter_percentile=filter_percentile, reaction_tmax=reaction_tmax)
-            break_epochs_sess = epoch_on_break(sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
+            break_epochs_sess = epoch_on_break(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
                                                n_cycles, verbose=verbose, filter_percentile=filter_percentile)
             sess = dict(**sess, **task_epochs_sess, **break_epochs_sess, **pull_epochs_sess)
 
@@ -694,7 +707,7 @@ def main(
 
             # extract session data and store num epochs for current session
             sess_data = {name: info['get'](sess[name]) for name, info in streams_info.items()}
-            num_epochs.append(sess_data['epochs_on_task'].shape[0])
+            # num_epochs.append(sess_data['epochs_on_task'].shape[0])
 
             # determine size of h5 datasets after first session processing
             # all epochs subsequent of sessions should have the same size (apart from the number of trials)
@@ -733,12 +746,10 @@ def main(
                     sess[part].save(epochs_path, overwrite=True, verbose=verbose)
                     sess[f'tfr_{part}'].save(tfr_epochs_path, overwrite=True, verbose=verbose)
 
-        streams_data.attrs['num_epochs'] = num_epochs
-        streams_data.attrs['session_ids'] = sum([[sid] * num_epochs[i] for i, sid in enumerate(session_ids)], [])
         streams_data.attrs['on_task_times'] = meta_data['on_task_times']
         streams_data.attrs['on_pull_times'] = meta_data['on_pull_times']
         streams_data.attrs['on_break_times'] = meta_data['on_break_times']
-        streams_data.attrs['freqs'] = meta_data['freqs']
+        streams_data.attrs['freqs'] = meta_data['freqs']  # same for all epoch types
 
         streams_data.close()
         print('h5 epoch files saved')
@@ -766,17 +777,20 @@ def main(
 if __name__ == '__main__':
 
     main(subject='0717b399', session_ids=range(1, 9),
-         do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
 
-    main(subject='6808dfab', session_ids=range(1, 4),
-         do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-
-
-    main(subject='0717b399', session_ids=range(1, 9),
-         do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
-
-    main(subject='6808dfab', session_ids=range(1, 4),
-         do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+    # main(subject='0717b399', session_ids=range(1, 9),
+    #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    #
+    # main(subject='6808dfab', session_ids=range(1, 4),
+    #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    #
+    #
+    # main(subject='0717b399', session_ids=range(1, 9),
+    #      do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+    #
+    # main(subject='6808dfab', session_ids=range(1, 4),
+    #      do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
 
     # TESTED:
 

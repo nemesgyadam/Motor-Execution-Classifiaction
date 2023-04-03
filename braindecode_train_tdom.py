@@ -8,7 +8,7 @@ from functools import partial
 import torch
 import numpy as np
 from braindecode.datasets import create_from_mne_raw, create_from_mne_epochs, create_from_X_y
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, random_split, Subset
 from braindecode import EEGClassifier
 from braindecode.models import *
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
@@ -24,6 +24,9 @@ import torchmetrics
 import random
 import wandb
 from pprint import pprint
+from itertools import combinations
+
+from data_gen import *
 
 
 class GatherMetrics(Callback):
@@ -36,58 +39,6 @@ class GatherMetrics(Callback):
     def on_validation_epoch_end(self, trainer, pl_module):
         each_me = deepcopy(trainer.callback_metrics)
         self.metrics.append(each_me)
-
-
-class EEGTimeDomainDataset(Dataset):
-
-    def __init__(self, streams_path, meta_path, cfg):
-        streams_data = h5py.File(streams_path, 'r')
-
-        with open(meta_path, 'rb') as f:
-            meta_data = pickle.load(f)
-
-        crop_def = (-np.inf, np.inf)
-        crop_t = cfg['crop_t']
-        crop_t = (crop_def[0] if crop_t[0] is None else crop_t[0], crop_def[1] if crop_t[1] is None else crop_t[1])
-        times = streams_data.attrs['on_task_times'][:]
-        within_window = (crop_t[0] < times) & (times < crop_t[1])
-        on_task_events = streams_data['on_task_events'][:][:, 2]
-
-        eeg_info = meta_data['eeg_info']
-        task_event_ids = meta_data['task_event_ids']
-
-        event_id_to_cls = {task_event_ids[ev]: cls for ev, cls in cfg['events_to_cls'].items()}
-
-        # select task relevant epochs
-        epochs = streams_data['epochs_on_task'][:]
-        relevant_epochs = np.logical_or.reduce([on_task_events == task_event_ids[ev]
-                                                for ev in cfg['events_to_cls'].keys()])
-        epochs = epochs[relevant_epochs, ...]
-        events = on_task_events[relevant_epochs]
-
-        # pick channels
-        relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
-        epochs = epochs[:, relevant_chans_i]
-
-        # load as X, y into braindecode
-        mapper = np.vectorize(lambda x: event_id_to_cls[x])
-        events_cls = mapper(events)
-
-        assert len(epochs) == len(events_cls)
-        self.epochs = epochs[..., within_window]
-        self.events_cls = events_cls
-        # self.norm = Compose([ToTensor(), Normalize([.5] * epochs.shape[1], [.5] * epochs.shape[1])])
-
-        # standardize by epoch
-        means = self.epochs.mean(axis=-1, keepdims=True)
-        stds = self.epochs.std(axis=-1, keepdims=True)
-        self.epochs = (self.epochs - means) / stds
-
-    def __getitem__(self, index) -> T_co:
-        return self.epochs[index], torch.as_tensor(self.events_cls[index], dtype=torch.int64)
-
-    def __len__(self):
-        return len(self.epochs)
 
 
 class BrainDecodeClassification(L.LightningModule):
@@ -156,6 +107,8 @@ def main(**kwargs):
         precision=32,  # 16 | 32
         gradient_clip_val=1,
         loss_fun=NLLLoss,
+        n_fold=None,  # number of times to randomly re-split train and valid
+        k_fold=1,  # number of sessions to use as validation in k-fold cross-valid
 
         model_cls=ShallowFBCSPNet,  # default model
         # number of samples to include in each window of the decoder - now set to the full recording length
@@ -179,82 +132,91 @@ def main(**kwargs):
     streams_path = f'{cfg["data_ver"]}/{cfg["subject"]}/{cfg["subject"]}_streams.h5'
     meta_path = f'{cfg["data_ver"]}/{cfg["subject"]}/{cfg["subject"]}_meta.pckl'
 
-    # manual data loading  # TODO by-session splitting
+    # manual data loading
     data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
-    train_ds, valid_ds = random_split(data, [cfg['train_data_ratio'], 1 - cfg['train_data_ratio']])
 
-    # init dataloaders
-    dl_params = dict(num_workers=cfg['num_workers'], prefetch_factor=cfg['prefetch_factor'],
-                     persistent_workers=cfg['num_workers'] > 0, pin_memory=True)
+    assert (cfg['n_fold'] is not None) ^ (cfg['k_fold'] is not None), 'define n_fold xor k_fold'
+    ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
+    print('split generator:', ds_split_gen)
 
-    train_dl = DataLoader(train_ds, cfg['batch_size'], shuffle=True, **dl_params)
-    valid_dl = DataLoader(valid_ds, cfg['batch_size'], shuffle=False, **dl_params)
+    min_val_losses, max_val_accs = [], []
+    for train_ds, valid_ds in ds_split_gen(data, cfg):
 
-    # init model
-    n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
+        # init dataloaders
+        dl_params = dict(num_workers=cfg['num_workers'], prefetch_factor=cfg['prefetch_factor'],
+                         persistent_workers=cfg['num_workers'] > 0, pin_memory=True)
 
-    # each model has its own parameter set, braindecode is fucked up, this per model parametrization is necessary
-    # https://braindecode.org/stable/api.html#models
-    iws = data[0][0].shape[1]
-    model_params = dict(  # what a marvelously fucked up library
-        ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                             final_conv_length=cfg['final_conv_length']),
-        Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                      final_conv_length=cfg['final_conv_length']),
-        EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=250),
-        EEGITNet=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-        EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                      final_conv_length=cfg['final_conv_length']),
-        EEGNetv4=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                      final_conv_length=cfg['final_conv_length']),
-        HybridNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-        EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                       n_first_filters=16, final_pool_length=8),
-        TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
-    )
+        train_dl = DataLoader(train_ds, cfg['batch_size'], shuffle=True, **dl_params)
+        valid_dl = DataLoader(valid_ds, cfg['batch_size'], shuffle=False, **dl_params)
 
-    model = cfg['model_cls'](
-        **model_params[cfg['model_cls'].__name__],
-    )
+        # init model
+        n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
 
-    # train
-    classif = BrainDecodeClassification(model, cfg)
-    model_name = f'braindecode_{model.__class__.__name__}'
-    model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
-
-    gather_metrics = GatherMetrics()
-    callbacks = [
-        ModelCheckpoint(
-            f"models/{model_name}",
-            model_fname_template,
-            monitor="val_loss",
-            save_top_k=1,
-            save_last=False,
-            verbose=True,
-        ),
-        LearningRateMonitor(logging_interval="step"),
-        EarlyStopping("val_loss", patience=12),
-        gather_metrics,
-    ]
-
-    trainer = L.Trainer(
-            accelerator=cfg["dev"],
-            devices=cfg["ndev"],
-            strategy=cfg["multi_dev_strat"],
-            max_epochs=cfg["epochs"],
-            default_root_dir=f"models/{model_name}",
-            callbacks=callbacks,
-            benchmark=False,
-            accumulate_grad_batches=cfg["accumulate_grad_batches"],
-            precision=cfg["precision"],
-            gradient_clip_val=cfg["gradient_clip_val"],
+        # each model has its own parameter set, braindecode is fucked up, this per model parametrization is necessary
+        # https://braindecode.org/stable/api.html#models
+        iws = data[0][0].shape[1]
+        model_params = dict(  # what a marvelously fucked up library
+            ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                                 final_conv_length=cfg['final_conv_length']),
+            Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                          final_conv_length=cfg['final_conv_length']),
+            EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=250),
+            EEGITNet=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
+            EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                          final_conv_length=cfg['final_conv_length']),
+            EEGNetv4=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                          final_conv_length=cfg['final_conv_length']),
+            HybridNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
+            EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                           n_first_filters=16, final_pool_length=8),
+            TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
         )
 
-    trainer.fit(classif, train_dl, valid_dl)
+        model = cfg['model_cls'](**model_params[cfg['model_cls'].__name__])
 
-    min_val_loss = min([m['val_loss'].item() for m in gather_metrics.metrics])
-    max_acc = max([m['val_acc'].item() for m in gather_metrics.metrics])
-    return dict(min_val_loss=min_val_loss, max_acc=max_acc)
+        # train
+        classif = BrainDecodeClassification(model, cfg)
+        model_name = f'braindecode_{model.__class__.__name__}'
+        model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
+
+        gather_metrics = GatherMetrics()
+        callbacks = [
+            ModelCheckpoint(
+                f"models/{model_name}",
+                model_fname_template,
+                monitor="val_loss",
+                save_top_k=1,
+                save_last=False,
+                verbose=True,
+            ),
+            LearningRateMonitor(logging_interval="step"),
+            EarlyStopping("val_loss", patience=12),
+            gather_metrics,
+        ]
+
+        trainer = L.Trainer(
+                accelerator=cfg["dev"],
+                devices=cfg["ndev"],
+                strategy=cfg["multi_dev_strat"],
+                max_epochs=cfg["epochs"],
+                default_root_dir=f"models/{model_name}",
+                callbacks=callbacks,
+                benchmark=False,
+                accumulate_grad_batches=cfg["accumulate_grad_batches"],
+                precision=cfg["precision"],
+                gradient_clip_val=cfg["gradient_clip_val"],
+            )
+
+        trainer.fit(classif, train_dl, valid_dl)
+
+        min_val_loss = min([m['val_loss'].item() for m in gather_metrics.metrics])
+        max_acc = max([m['val_acc'].item() for m in gather_metrics.metrics])
+
+        min_val_losses.append(min_val_loss)
+        max_val_accs.append(max_acc)
+
+    return dict(min_val_loss=np.mean(min_val_losses), max_acc=np.mean(max_val_accs),
+                min_val_loss_std=np.std(min_val_losses), max_acc_std=np.std(max_val_accs))
 
 
 if __name__ == '__main__':
