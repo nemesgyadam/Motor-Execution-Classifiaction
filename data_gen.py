@@ -31,7 +31,7 @@ from skimage.transform import resize
 
 class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task, on_break, on_pull
 
-    def __init__(self, streams_path, meta_path, cfg):
+    def __init__(self, streams_path, meta_path, cfg, epoch_type='task'):
         streams_data = h5py.File(streams_path, 'r')
 
         with open(meta_path, 'rb') as f:
@@ -40,17 +40,17 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
         crop_def = (-np.inf, np.inf)
         crop_t = cfg['crop_t']
         crop_t = (crop_def[0] if crop_t[0] is None else crop_t[0], crop_def[1] if crop_t[1] is None else crop_t[1])
-        times = streams_data.attrs['on_task_times'][:]
+        times = streams_data.attrs[f'on_{epoch_type}_times'][:]
         within_window = (crop_t[0] < times) & (times < crop_t[1])
-        on_task_events = streams_data['on_task_events'][:][:, 2]
+        on_task_events = streams_data[f'on_{epoch_type}_events'][:][:, 2]
 
         eeg_info = meta_data['eeg_info']
-        task_event_ids = meta_data['task_event_ids']
+        task_event_ids = meta_data[f'{epoch_type}_event_ids']
 
         event_id_to_cls = {task_event_ids[ev]: cls for ev, cls in cfg['events_to_cls'].items()}
 
         # select task relevant epochs
-        epochs = streams_data['epochs_on_task'][:]
+        epochs = streams_data[f'epochs_on_{epoch_type}'][:]
         relevant_epochs = np.logical_or.reduce([on_task_events == task_event_ids[ev]
                                                 for ev in cfg['events_to_cls'].keys()])
         epochs = epochs[relevant_epochs, ...]
@@ -75,7 +75,7 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
         self.epochs = (self.epochs - means) / stds
 
         # splitting info
-        self.session_idx = streams_data['on_task_session_idx'][relevant_epochs]
+        self.session_idx = streams_data[f'on_{epoch_type}_session_idx'][relevant_epochs]
         self.sessions = meta_data['session_ids']
 
         streams_data.close()
@@ -193,7 +193,7 @@ def rnd_by_epoch_cross_val(data: Dataset, cfg: dict):
 
 
 def by_sess_cross_val(data: Union[EEGTimeDomainDataset, EEGTfrDomainDataset], cfg: dict):
-    for val_sessions in map(set, combinations(data.sessions, cfg['k_fold'])):
+    for val_sessions in map(set, combinations(data.sessions, cfg['leave_k_out'])):
         yield split_by_session(data, data.session_idx, val_sessions)
 
 

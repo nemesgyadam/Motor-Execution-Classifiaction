@@ -775,9 +775,8 @@ def main(
 
 
 if __name__ == '__main__':
-
     main(subject='0717b399', session_ids=range(1, 12),
-         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+         rerun_proc=False, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
 
     # main(subject='0717b399', session_ids=range(1, 9),
     #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)

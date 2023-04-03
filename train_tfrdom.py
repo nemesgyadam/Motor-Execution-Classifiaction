@@ -54,7 +54,7 @@ def main(**kwargs):
         gradient_clip_val=1,
         loss_fun=NLLLoss,
         n_fold=None,  # number of times to randomly re-split train and valid
-        k_fold=1,  # number of sessions to use as validation in k-fold cross-valid
+        leave_k_out=1,  # number of sessions to use as validation in k-fold cross-valid
 
         model_cls=ShallowFBCSPNet,
         # input_window_samples=100,   # TODO set to epoch len now
@@ -80,7 +80,7 @@ def main(**kwargs):
     # manual data loading
     data = EEGTfrDomainDataset(streams_path, meta_path, cfg)
 
-    assert (cfg['n_fold'] is not None) ^ (cfg['k_fold'] is not None), 'define n_fold xor k_fold'
+    assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
     ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
     print('split generator:', ds_split_gen)
 

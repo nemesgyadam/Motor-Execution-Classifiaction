@@ -329,10 +329,14 @@ if __name__ == '__main__':
             # select epochs to use and create plots
             epochs = bl_n_cue_n_mi_epochs
             gen_erp_plots(epochs, ds_name, out_folder)
-            gen_erds_plots(epochs, f'{ds_name}_mu', event_id, out_folder, freqs=np.arange(7, 13, 0.1))
-            gen_erds_plots(epochs, f'{ds_name}_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5))
-            gen_erds_plots(epochs, f'{ds_name}_smr', event_id, out_folder, freqs=np.arange(13, 15, 0.1))
-            gen_erds_plots(epochs, f'{ds_name}_allf', event_id, out_folder, freqs=np.arange(7, 40, 0.5))
+            gen_erds_plots(epochs, f'{ds_name}_mu', event_id, out_folder, freqs=np.arange(7, 13, 0.1),
+                           baseline=(-1.5, 0), apply_baseline=True)
+            gen_erds_plots(epochs, f'{ds_name}_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5),
+                           baseline=(-1.5, 0), apply_baseline=True)
+            gen_erds_plots(epochs, f'{ds_name}_smr', event_id, out_folder, freqs=np.arange(13, 15, 0.1),
+                           baseline=(-1.5, 0), apply_baseline=True)
+            gen_erds_plots(epochs, f'{ds_name}_allf', event_id, out_folder, freqs=np.arange(7, 40, 0.5),
+                           baseline=(-1.5, 0), apply_baseline=True)
 
 
     ### run analysis on all epochs from all subjects
@@ -363,7 +367,11 @@ if __name__ == '__main__':
         [mi_epochs, cue_epochs, cue_n_mi_epochs, bl_n_cue_epochs])
 
     # gen_erp_plots(epochs, 'combined', out_folder)
-    gen_erds_plots(epochs, 'combined_mu', event_id, out_folder, freqs=np.arange(8, 13, 0.1))
-    gen_erds_plots(epochs, 'combined_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5))
-    gen_erds_plots(epochs, 'combined_smr', event_id, out_folder, freqs=np.arange(13.1, 15.1, 0.1))
-    gen_erds_plots(epochs, 'combined_allf', event_id, out_folder, freqs=np.arange(7.5, 40.5, 0.5))
+    gen_erds_plots(epochs, 'combined_mu', event_id, out_folder, freqs=np.arange(8, 13, 0.1),
+                   baseline=(-1.5, 0), apply_baseline=True)
+    gen_erds_plots(epochs, 'combined_beta', event_id, out_folder, freqs=np.arange(13, 30, 0.5),
+                   baseline=(-1.5, 0), apply_baseline=True)
+    gen_erds_plots(epochs, 'combined_smr', event_id, out_folder, freqs=np.arange(13.1, 15.1, 0.1),
+                   baseline=(-1.5, 0), apply_baseline=True)
+    gen_erds_plots(epochs, 'combined_allf', event_id, out_folder, freqs=np.arange(7.5, 40.5, 0.5),
+                   baseline=(-1.5, 0), apply_baseline=True)
