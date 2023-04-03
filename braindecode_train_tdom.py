@@ -140,7 +140,8 @@ def main(**kwargs):
     print('split generator:', ds_split_gen)
 
     min_val_losses, max_val_accs = [], []
-    for train_ds, valid_ds in ds_split_gen(data, cfg):
+    for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):
+        print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
         # init dataloaders
         dl_params = dict(num_workers=cfg['num_workers'], prefetch_factor=cfg['prefetch_factor'],
@@ -244,11 +245,9 @@ if __name__ == '__main__':
         try:
             metrics = main(model_cls=model, batch_size=8)
             metricz[model.__name__] = metrics
-            print('='*80)
-            print('=' * 80)
+            print('=' * 80, '\n', '=' * 80)
             print(model.__name__, '|', metrics)
-            print('=' * 80)
-            print('=' * 80)
+            print('=' * 80, '\n', '=' * 80)
             pprint(metricz)
         except Exception as e:
             print(e, file=sys.stderr)
