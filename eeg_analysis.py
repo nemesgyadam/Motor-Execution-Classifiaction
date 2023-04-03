@@ -596,7 +596,7 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
 def main(
     subject='0717b399',  # 0717b399 | 6808dfab
-    session_ids=range(1, 9),  # range(1, 9) | range(1, 4)
+    session_ids=range(1, 12),  # range(1, 9) | range(1, 4)
     freq_rng=(2, 80),  # min and max frequency to sample (see how below)
     nfreq=100,  # number of frequency to sample in freq_rng
     n_cycles=None,
@@ -776,7 +776,7 @@ def main(
 
 if __name__ == '__main__':
 
-    main(subject='0717b399', session_ids=range(1, 9),
+    main(subject='0717b399', session_ids=range(1, 12),
          rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
 
     # main(subject='0717b399', session_ids=range(1, 9),
