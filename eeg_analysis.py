@@ -132,7 +132,7 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     gamepad_ch_names = ['LeftX', 'LeftY', 'RightX', 'RightY', 'L2', 'R2']
 
     # load streams from xdf
-    streams, header  = pyxdf.load_xdf(rec_path)
+    streams, header = pyxdf.load_xdf(rec_path)
     modalities = {s['info']['name'][0]: s for s in streams}
 
     eeg = modalities['Unicorn']['time_series'].T[:8, :]
@@ -165,10 +165,10 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     gamepad = gamepad_f(gamepad_t)
 
     # get index of timepoints (as opposed to seconds)
-    # needed for creating mne events
-    eeg_i = (eeg_t * shared_sfreq).astype(np.int32)
-    events_i = (events_t * shared_sfreq).astype(np.int32)
-    gamepad_i = (gamepad_t * shared_sfreq).astype(np.int32)
+    # needed for creating mne events - not really, as sample index it will be slightly off ackchyually
+    # eeg_i = (eeg_t * shared_sfreq).astype(np.int32)
+    # events_i = (events_t * shared_sfreq).astype(np.int32)
+    # gamepad_i = (gamepad_t * shared_sfreq).astype(np.int32)
 
     # create events from gamepad action
     # events need to be in the format of:
@@ -188,8 +188,10 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
         good_boi_peak = [dx[peak - drng:peak + drng].sum() > .5 for peak in peaks]
         return peaks[good_boi_peak]
 
-    triggers_on_i  = [gamepad_i[detect_trigger_pulls( gamepad[trigger_i, :], shared_sfreq, trigger_pull_dist_t)] for trigger_i in trigger_lr_i]
-    triggers_off_i = [gamepad_i[detect_trigger_pulls(-gamepad[trigger_i, :], shared_sfreq, trigger_pull_dist_t)] for trigger_i in trigger_lr_i]
+    triggers_on_i  = [detect_trigger_pulls( gamepad[trigger_i, :], shared_sfreq, trigger_pull_dist_t)
+                      for trigger_i in trigger_lr_i]
+    triggers_off_i = [detect_trigger_pulls(-gamepad[trigger_i, :], shared_sfreq, trigger_pull_dist_t)
+                      for trigger_i in trigger_lr_i]
 
     # check if the same number of on-off happened, pair on-offs, remove ones that can't be paired
     print('trigger on/off times should be equal:')
@@ -202,7 +204,7 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     # ti=4;plt.plot(gamepad_i, gamepad[ti, :]);plt.plot(gamepad_i, np.diff(gamepad[ti, :], append=0));plt.scatter(triggers_on_i[ti-4], np.diff(gamepad[ti, :], append=0)[triggers_on_i[ti-4]], marker='X', color='red');plt.show()
 
     # events data structure: n_events x 3: [[sample_i, 0, marker]...]
-    trigger_on_markers = [np.repeat(ev_mark, len(i)) for i, ev_mark in zip(triggers_on_i, trigger_on_event_markers)]
+    trigger_on_markers  = [np.repeat(ev_mark, len(i)) for i, ev_mark in zip(triggers_on_i, trigger_on_event_markers)]
     trigger_off_markers = [np.repeat(ev_mark, len(i)) for i, ev_mark in zip(triggers_off_i, trigger_off_event_markers)]
 
     trigger_i = np.concatenate(triggers_on_i + triggers_off_i)
@@ -210,7 +212,9 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     gamepad_lr_events = np.stack([trigger_i, np.zeros_like(trigger_i), trigger_markers], axis=1)
 
     # create events from exp-marker stream and combine it with gamepad events
-    exp_events = np.stack([events_i, np.zeros_like(events_i), events], axis=1)
+    # first select eeg sample indices that are the closest to the event times
+    events_i_v2 = np.asarray([np.argmin(np.abs(eeg_t - et)) for et in events_t])
+    exp_events = np.stack([events_i_v2, np.zeros_like(events_i_v2), events], axis=1)
     all_events = np.concatenate([gamepad_lr_events, exp_events], axis=0)
 
     # event dictionary - event_name: marker
@@ -221,7 +225,7 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     
     # preprocess numpy eeg, before encaptulating into mne raw
     # common median referencing - substract median at each timepoint
-    eeg -= np.mean(eeg, axis=0)  # TODO was median
+    eeg -= np.mean(eeg, axis=0)
     
     # create raw mne eeg array and add events
     # adding gamepad to eeg channels just complictes things at this point,
@@ -231,8 +235,8 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     # raw_w_gamepad = mne.io.RawArray(np.concatenate([eeg, gamepad[trigger_lr_i, :]]), eeg_gamepad_info)
     eeg_info = mne.create_info(ch_types='eeg', ch_names=eeg_ch_names, sfreq=eeg_sfreq)
     raw = mne.io.RawArray(eeg, eeg_info, verbose=verbose)
-    easycap_montage = mne.channels.make_standard_montage('easycap-M1')
-    raw.set_montage(easycap_montage)
+    std_1020 = mne.channels.make_standard_montage('standard_1020')
+    raw.set_montage(std_1020)
     # raw.plot_sensors(show_names = True)
     # plt.show()
 
@@ -262,6 +266,7 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
 
     # filter epochs, remove when stimulus-action mismatch
     # create new event for when the right button is pressed
+    # TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! DEBUGGING LEFT OF HERE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     left_success_marker = int(f'{event_dict["left"]}{event_dict["L2-on"]}')
     right_success_marker = int(f'{event_dict["right"]}{event_dict["R2-on"]}')
     lr_success_marker = int(f'{event_dict["left-right"]}2')
@@ -776,7 +781,7 @@ def main(
 
 if __name__ == '__main__':
     main(subject='0717b399', session_ids=range(1, 12),
-         rerun_proc=False, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False, nfreq=101)
 
     # main(subject='0717b399', session_ids=range(1, 9),
     #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
