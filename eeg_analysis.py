@@ -266,7 +266,6 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
 
     # filter epochs, remove when stimulus-action mismatch
     # create new event for when the right button is pressed
-    # TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! DEBUGGING LEFT OF HERE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     left_success_marker = int(f'{event_dict["left"]}{event_dict["L2-on"]}')
     right_success_marker = int(f'{event_dict["right"]}{event_dict["R2-on"]}')
     lr_success_marker = int(f'{event_dict["left-right"]}2')
@@ -330,6 +329,14 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
 
     # order events
     all_events = all_events[np.argsort(all_events[:, 0]), :]
+
+    # # test gamepad event alignment
+    # gev = np.concatenate([left_success[0], right_success[0], lr_success[0], nothing_success[0],
+    #                       break_success[0], left_success_pull[0], right_success_pull[0],
+    #                       lr_success_pull[0]], axis=0)
+    # graw = mne.io.RawArray(gamepad[[4, 5]], mne.create_info(ch_types='misc', ch_names=['L2', 'R2'],
+    #                                                         sfreq=shared_sfreq))
+    # graw.plot(scalings=3, events=gev, duration=10.)
 
     return dict(success_markers={'left': left_success_marker, 'right': right_success_marker,
                                  'left-right': lr_success_marker, 'nothing': nothing_success_marker,
@@ -601,7 +608,7 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
 def main(
     subject='0717b399',  # 0717b399 | 6808dfab
-    session_ids=range(1, 12),  # range(1, 9) | range(1, 4)
+    session_ids=range(1, 12),  # range(1, 12) | range(1, 4)
     freq_rng=(2, 80),  # min and max frequency to sample (see how below)
     nfreq=100,  # number of frequency to sample in freq_rng
     n_cycles=None,
@@ -772,16 +779,16 @@ def main(
                               norm_c34_w_cz, verbose, 'break')
 
 
+# TODO debug epoching functions + plotting (?)
 # TODO upload new h5 versions
-
-# TODO !!!!! why 'left-right': '10/39' only for session1? check left-right on-task epoching code
-#   num of events successful/originally: {'left': '32/36', 'right': '36/39', 'left-right': '10/39', 'nothing': '36/36'}
-#   consistently: num of events successful/originally: {'left': '38/44', 'right': '20/25', 'left-right': '19/37', 'nothing': '44/44'}
 
 
 if __name__ == '__main__':
     main(subject='0717b399', session_ids=range(1, 12),
-         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False, nfreq=101)
+         rerun_proc=True, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+
+    main(subject='6808dfab', session_ids=range(1, 4),
+         rerun_proc=True, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
 
     # main(subject='0717b399', session_ids=range(1, 9),
     #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
