@@ -20,15 +20,16 @@ raw = data[1]['session_T']['run_0']
 stims, stim_t = raw[raw.ch_names.index('stim')]
 unique_events = np.unique(stims, return_counts=True)  # 0 == no event
 
-# create events
-# check doc
+# create events; check doc for timing
+tmin, tmax = .8, 4
+baseline = tmin, 2
 events = mne.find_events(raw, 'stim')
 event_id = dict(left=1, right=2, feet=3, tongue=4)
-epochs = mne.Epochs(raw, events, event_id, tmin=-1.5, tmax=4, baseline=(None, 0), preload=True)
+epochs = mne.Epochs(raw, events, event_id, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
 
 epochs.plot(scalings=.0001, events=events)
 
-# TODO avg plot, what do we see? electroes in sync, athallas
+# TODO avg plot, what do we see? electrodes in sync, athallas
 for avg in epochs.average(by_event_type=True):
     avg.plot(titles=avg.comment, hline=[0])
 
@@ -40,18 +41,18 @@ def prep_epoch(raw: mne.io.Raw):
     # TODO re-referencing, implement bandpass filter (0.5 - 100Hz) and notch filter (50, 100Hz)
     # TODO then apply baseline
     raw = raw.set_eeg_reference('average', projection=True, verbose=False).apply_proj()
-    raw = mne.preprocessing.compute_current_source_density(raw)
-    raw = raw.filter(0.5, 100, verbose=False)
+    # raw = mne.preprocessing.compute_current_source_density(raw)
+    raw = raw.filter(0.5, 40, verbose=False)
     raw = raw.notch_filter([50, 100], verbose=False)
 
     events = mne.find_events(raw, 'stim', verbose=False)
     event_id = dict(left=1, right=2, feet=3, tongue=4)
-    epochs = mne.Epochs(raw, events, event_id, tmin=-1.5, tmax=4, baseline=(None, 0), preload=True, verbose=False)
+    epochs = mne.Epochs(raw, events, event_id, tmin=tmin, tmax=tmax, baseline=baseline, preload=True, verbose=False)
 
     return epochs
 
 
-# TODO combine epochs from all sessions
+# combine epochs from all sessions
 subjects = range(1, 2)
 all_epochs = []
 for subj_i, subj in data.items():
@@ -68,8 +69,8 @@ all_epochs = mne.concatenate_epochs(all_epochs)
 # TODO make them do it from here...
 
 channels = ['C3', 'Cz', 'C4']
-freq_rng = (2, 30)
-nfreq = 42
+freq_rng = (7, 34.9)
+nfreq = 30
 # freqs = np.linspace(freq_rng[0], freq_rng[1], nfreq)
 freqs = np.logspace(np.log(freq_rng[0]), np.log(freq_rng[1]), num=nfreq, base=np.e)
 n_cycles = (np.log(freqs) * 2 + 2).astype(np.int32)
@@ -78,9 +79,9 @@ n_cycles = (np.log(freqs) * 2 + 2).astype(np.int32)
 vmin, vmax = -1, 1.5
 cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
 
-tfr = tfr_multitaper(all_epochs.copy().pick(channels), freqs=freqs, n_cycles=n_cycles, use_fft=True,
+tfr = tfr_morlet(all_epochs.copy().pick(channels), freqs=freqs, n_cycles=n_cycles, use_fft=True,
                      return_itc=False, average=False, verbose=True, n_jobs=4)
-tfr = tfr.apply_baseline((-1.5, 0), mode='percent', verbose=False)
+tfr = tfr.apply_baseline(baseline, mode='percent', verbose=False)
 
 for event in tqdm(event_id.keys()):
 
