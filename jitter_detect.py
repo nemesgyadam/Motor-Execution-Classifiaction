@@ -13,6 +13,9 @@ import pickle
 import h5py
 from glob import glob
 
+import matplotlib
+matplotlib.use('Qt5Agg')
+
 eeg_sfreq = 250
 gamepad_sfreq = 125
 verbose = False
@@ -47,6 +50,7 @@ events_t -= T0
 # remove negative timepoints and corresponding samples
 events = events[events_t >= 0]
 events_t = events_t[events_t >= 0]
+
 
 # # plotting commands for debugging
 # ti=4;plt.plot(gamepad_i, gamepad[ti, :]);plt.scatter(triggers_on_i[ti-4], gamepad[ti, triggers_on_i[ti-4]], marker='X', color='red');plt.show()
@@ -92,18 +96,50 @@ eeg_p = raw.get_data()[4]
 eeg_p -= eeg_p.mean()
 eeg_p = np.abs(eeg_p)
 peaks = find_peaks(eeg_p, height = 5, distance=4 * raw.info['sfreq'])
-manual_peak_index = np.where(eeg_p[100000:100500] == eeg_p[100000:100500].max())[0] + 100000
+manual_peak_index = np.where(eeg_p[100000:100500] == eeg_p[100000:100500].max())[0] +  100000
 manual_peak_value = max(eeg_p[100000:100500])
 peak_indexes = np.append(peaks[0], manual_peak_index[0])
 peak_values = np.append(peaks[1]['peak_heights'], manual_peak_value)
+
+peak_reorder = np.argsort(peak_indexes)
+peak_indexes2 = peak_indexes[peak_reorder]
+peak_values = peak_values[peak_reorder]
+
+peak_t = eeg_t[peak_indexes2]
+rel_events = np.logical_or.reduce([events == event_dict[ev] for ev in ['left', 'right', 'left-right', 'nothing']])
+rel_events_t = events_t[rel_events]
+
+from sklearn.metrics import pairwise_distances
+peak_event_dist = pairwise_distances(peak_t.reshape(-1, 1), rel_events_t.reshape(-1, 1))
+plt.imshow(np.log(peak_event_dist))
+plt.show()
+
+closest_to_peaks = np.argmin(peak_event_dist, axis=1)
+paired_events = rel_events_t[closest_to_peaks]
+
+time_diffs2 = peak_t - paired_events
+np.abs(time_diffs2)
+
 
 event_timepoint = events_t * raw.info['sfreq']
 indecies = np.searchsorted(event_timepoint, peak_indexes) - 1
 closest_values = event_timepoint[indecies]
 time_diffs = (peak_indexes - closest_values) / raw.info['sfreq']
-marker_peak_combined = np.stack([peak_indexes, peak_values, closest_values, time_diffs])
+marker_peak_combined = np.stack([peak_indexes, peak_values, closest_values, time_diffs])#kinda useless
 plt.plot(eeg_p)
-plt.scatter(marker_peak_combined[0], marker_peak_combined[1], s=10, c='red')
+plt.scatter(marker_peak_combined[0],marker_peak_combined[1], s=10, c='red')
 plt.show()
+pass
 
-# raw.plot()
+print(time_diffs)
+print(np.mean(time_diffs), np.std(time_diffs))
+
+irl_times = np.array([0.771,0.937,0.762,0.725,0.442,999,0.553,0.408,0.708,0.546,0.458,0.571, 0.471, 0.429, 0.488,0.413, 0.266, 0.416,
+                      0.456,0.367,0.333,0.437,0.625,0.437,0.348,0.384,0.408,0.625,0.671,0.846,0.495,0.634,0.766,0.850,0.691,0.341,0.546,0.433,0.553,
+                      0.521,0.345,0.375,0.313,0.267,0.329,0.380,0.351,0.359, 0.363])
+
+jitter = np.abs(irl_times - time_diffs2)
+valid_jitter = jitter[jitter < 500]
+
+plt.hist(valid_jitter, bins=20)
+plt.title(f'jitter mean (std): {np.mean(valid_jitter):.4f} ({np.std(valid_jitter):.4f})')

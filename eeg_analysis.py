@@ -306,7 +306,8 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
         plt.title('button press delay')
         plt.hist(left_success[1], bins=20, label='left', alpha=.5)
         plt.hist(right_success[1], bins=20, label='right', alpha=.5)
-        # plt.hist(lr_success[1], bins=10, label='left-right', alpha=.5)  # TODO implement define_target_events2() proper lag array handling
+        # TODO implement define_target_events2() proper lag array handling
+        # plt.hist(lr_success[1], bins=10, label='left-right', alpha=.5)
         plt.legend()
         fig.savefig(f'{fig_output_path}/btn_press_delay_{rec_name}.png')
     
@@ -375,7 +376,7 @@ def epoch_on_task(sess_id: int, prep_results: dict, exp_cfg_path, freqs, baselin
         raise ValueError('invalid tfr_mode:', tfr_mode)
 
     # apply baseline on tfr
-    tfr_epochs_on_task.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
+    tfr_epochs_on_task = tfr_epochs_on_task.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_task=epochs_on_task, tfr_epochs_on_task=tfr_epochs_on_task,
                 on_task_times=tfr_epochs_on_task.times, task_event_ids=task_event_ids, task_baseline=baseline,
@@ -414,7 +415,7 @@ def epoch_on_pull(sess_id, prep_results: dict, exp_cfg_path, freqs, baseline=(No
         raise ValueError('invalid tfr_mode:', tfr_mode)
 
     # apply baseline on tfr
-    tfr_epochs_on_pull.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
+    tfr_epochs_on_pull = tfr_epochs_on_pull.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_pull=epochs_on_pull, tfr_epochs_on_pull=tfr_epochs_on_pull,
                 on_pull_times=tfr_epochs_on_pull.times, pull_event_ids=pull_event_ids, pull_baseline=baseline,
@@ -450,7 +451,7 @@ def epoch_on_break(sess_id, prep_results: dict, exp_cfg_path, freqs, baseline=(N
     else:
         raise ValueError('invalid tfr_mode:', tfr_mode)
 
-    tfr_epochs_on_break.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
+    tfr_epochs_on_break = tfr_epochs_on_break.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
     return dict(epochs_on_break=epochs_on_break, tfr_epochs_on_break=tfr_epochs_on_break,
                 on_break_times=tfr_epochs_on_break.times, break_event_ids=break_event_ids, break_baseline=baseline,
@@ -552,13 +553,9 @@ def process_eyes_open_closed(raw: mne.io.Raw, events: np.ndarray, info: mne.Info
         ax2.set_title('eyes open')
         ax3.set_title(f'difference: {difference.max():.2f} at {eyes_clossed_psd.freqs[peak[0]]:.2f} Hz (IAF)')
 
-        fig.savefig(f'{output_path}/figures/open-closed_eye.png')
+        fig.savefig(f'{output_path}/open-closed_eye.png')
     
     return eyes_open, eyes_closed, eyes_clossed_psd.freqs[peak]
-
-
-# TODO double-check preproc code
-# TODO remove bad epochs - use quality control function in epoching functions
 
 
 def combined_session_analysis(subject, streams_path, meta_path, output_path, channels=('C3', 'Cz', 'C4'),
@@ -700,7 +697,7 @@ def main(
 
             # create IAF plots
             _, _, iaf = process_eyes_open_closed(sess['filt_raw_eeg'], sess['events'], sess['eeg_info'],
-                                                 do_plot=do_plot, output_path=output_path, verbose=verbose)
+                                                 do_plot=do_plot, output_path=fig_output_path, verbose=verbose)
             meta_data['iafs'].append(iaf)
 
             # epoch sessions
@@ -779,8 +776,8 @@ def main(
                               norm_c34_w_cz, verbose, 'break')
 
 
-# TODO debug epoching functions + plotting (?)
 # TODO upload new h5 versions
+# TODO remove bad epochs - use quality control function in epoching functions
 
 
 if __name__ == '__main__':
@@ -789,6 +786,8 @@ if __name__ == '__main__':
 
     main(subject='6808dfab', session_ids=range(1, 4),
          rerun_proc=True, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+
+    # TODO try more settings
 
     # main(subject='0717b399', session_ids=range(1, 9),
     #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
