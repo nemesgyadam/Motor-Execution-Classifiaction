@@ -301,7 +301,7 @@ if __name__ == '__main__':
         for s, z in zip([trials, classes, baselines, cues, mis, breaks], [all_trials, all_classes, all_baselines, all_cues, all_mis, all_breaks]):
             z.append(s)
 
-        if do_per_subject_comp:
+        if True:#do_per_subject_comp: TODO
             # events
             n_epochs = trials.shape[0]
             event_id = {e: i for i, e in enumerate(np.unique(classes))}
