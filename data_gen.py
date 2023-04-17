@@ -178,6 +178,9 @@ class EEGTfrDomainDataset(Dataset):
         self.session_idx = streams_data['on_task_session_idx'][relevant_epochs]
         self.sessions = meta_data['session_ids']
 
+        # other
+        self.iaf = np.median(np.asarray(meta_data['iafs']))
+
         streams_data.close()
 
     def __getitem__(self, index) -> T_co:

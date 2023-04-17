@@ -12,6 +12,8 @@ from mi_sanity import gen_erds_plots
 import pickle
 import h5py
 from glob import glob
+from matplotlib.colors import TwoSlopeNorm
+from matplotlib.pyplot import cm
 
 
 def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, new_id=None, fill_na=None, occur=True):
@@ -224,7 +226,7 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                   **{f'{trig}-off': mark for mark, trig in zip(trigger_off_event_markers, ['L2', 'R2'])}}
     
     # preprocess numpy eeg, before encaptulating into mne raw
-    # common median referencing - substract median at each timepoint
+    # common mean referencing - substract mean at each timepoint
     eeg -= np.mean(eeg, axis=0)
     
     # create raw mne eeg array and add events
@@ -558,8 +560,119 @@ def process_eyes_open_closed(raw: mne.io.Raw, events: np.ndarray, info: mne.Info
     return eyes_open, eyes_closed, eyes_clossed_psd.freqs[peak]
 
 
+def cross_correlation_shift3(data):  # chatgpt
+    """
+    Computes the cross-correlation between the reference vector (the one with the highest average cross-correlation
+    with all other vectors) and all other vectors in a data matrix, finds the shift for each vector that maximizes
+    the cross-correlation, shifts all vectors to their respective maximum correlation position, pads all vectors
+    to have the same final length with NaN values, and returns the resulting padded and shifted matrix.
+
+    Args:
+        data (numpy.ndarray): A 2D numpy array of size (N, D) containing N vectors of dimension D.
+
+    Returns:
+        numpy.ndarray: A 2D numpy array of size (N, max_len) containing the shifted and padded vectors,
+        where max_len is the length of the longest vector after shifting and padding.
+    """
+    # Find the reference vector with highest average cross-correlation with all other vectors
+    corr = np.corrcoef(data)
+    avg_corr = np.mean(corr, axis=0)
+    ref_index = np.argmax(avg_corr)
+
+    # Compute cross-correlation between reference vector and all other vectors
+    corr = []
+    for i in range(data.shape[0]):
+        corr.append(np.correlate(data[ref_index], data[i], mode='full'))
+    corr = np.array(corr)
+
+    # Find the shifts for each vector
+    shifts = np.argmax(corr, axis=1) - (data.shape[1] - 1)
+
+    # Shift all vectors to their respective maximum correlation position
+    padded_data = np.full((data.shape[0], data.shape[1] + np.abs(shifts).max()), np.nan)
+    for i in range(data.shape[0]):
+        shift = shifts[i]
+        if shift >= 0:
+            padded_data[i, shift:data.shape[1] + shift] = data[i, :]
+        else:
+            padded_data[i, :data.shape[1] + shift] = data[i, -shift:]
+
+    return padded_data
+
+
+def pad_2d_to_max_length(arr_list):  # chatgpt
+    """
+    Pads only the second dimensions of the 2D numpy arrays in a list to the same length, by appending NaN values to the end,
+    up to the maximum length of all the second dimensions in the list.
+
+    Args:
+        arr_list (list): A list of 2D numpy arrays of different second dimension lengths.
+
+    Returns:
+        list: A list of 2D numpy arrays padded with NaN values to the same second dimension length as the longest
+        second dimension in arr_list.
+    """
+    # Find the maximum length of all second dimensions
+    max_len = np.max([arr.shape[1] for arr in arr_list])
+
+    # Pad all second dimensions to the same length
+    padded_arr_list = []
+    for arr in arr_list:
+        padded_arr = np.pad(arr, pad_width=((0, 0), (0, max_len - arr.shape[1])), mode='constant',
+                            constant_values=np.nan)
+        padded_arr_list.append(padded_arr)
+
+    return padded_arr_list
+
+
+def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show_std=True):
+
+    # TODO any smoothing?
+
+    # TODO !!! LIMIT CROSS-CORRELATION SHIFT AMOUNT !!!
+
+    fig, axes = plt.subplots(len(fois), len(channels), figsize=(8 * len(channels), len(fois) * 7))
+    colors = cm.rainbow(np.linspace(0, 1, len(event_ids)))
+
+    ylim = [-3, 5] if shift else [-1, 1.5]
+
+    for foi_i, (foi_name, foi) in enumerate(fois.items()):  # freq rng of interest
+        foi_freqs = (foi[0] <= freqs) & (freqs <= foi[1])
+
+        for ev_i, event in enumerate(event_ids.keys()):
+            tfr_f_ev = epochs[event].data[:, :, foi_freqs, :].mean(axis=2)
+            if shift:
+                tfr_f_ev = np.stack(pad_2d_to_max_length([cross_correlation_shift3(tfr_f_ev[:, ch_i])
+                                    for ch_i in range(len(channels))]), axis=1)
+                times = np.arange(tfr_f_ev.shape[-1])
+
+            tfr_f_ev_mean = np.nanmean(tfr_f_ev, axis=0)
+            tfr_f_ev_std = np.nanstd(tfr_f_ev, axis=0)
+
+            for ch_i, ch in enumerate(channels):
+                if show_std:
+                    axes[foi_i, ch_i].fill_between(times, tfr_f_ev_mean[ch_i] - tfr_f_ev_std[ch_i],
+                                                   tfr_f_ev_mean[ch_i] + tfr_f_ev_std[ch_i],
+                                                   alpha=.3, color=colors[ev_i])
+                label = event if ch_i == 0 else '_nolegend_'
+                axes[foi_i, ch_i].plot(times, tfr_f_ev_mean[ch_i], label=label, alpha=.85, color=colors[ev_i])
+                axes[foi_i, ch_i].set_ylim(ylim)
+                if foi_i == 0:
+                    axes[foi_i, ch_i].axvline([0], *ylim, color='black')
+                    axes[foi_i, ch_i].set_title(ch)
+                if ch_i == 0:
+                    axes[foi_i, ch_i].set_ylabel(foi_name)
+                if foi_i == 0 and ev_i == len(event_ids.keys()) - 1 and ch_i == 0:
+                    fig.legend(loc='lower center', ncols=len(event_ids))
+                if shift:
+                    axes[foi_i, ch_i].set_xticklabels([])
+                    axes[foi_i, ch_i].set_xlabel('$shifted$')
+
+    return fig
+
+
 def combined_session_analysis(subject, streams_path, meta_path, output_path, channels=('C3', 'Cz', 'C4'),
-                              norm_c34_w_cz=False, verbose=False, part='task'):
+                              norm_c34_w_cz=False, verbose=False, part='task', run_deprecated=False):
     # load hdf5 + meta data and run gen_erds_plots
     streams_data = h5py.File(streams_path, 'r')
 
@@ -570,6 +683,8 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
     freqs = streams_data.attrs['freqs']
     times = streams_data.attrs[f'on_{part}_times'][:]
     on_task_events = streams_data[f'on_{part}_events'][:]
+    iaf = np.median(np.asarray(meta_data['iafs']))
+    event_ids = meta_data[f'{part}_event_ids']
 
     # C3-Cz, C4-Cz
     tfr = streams_data[f'tfr_epochs_on_{part}'][:]
@@ -581,24 +696,62 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
         tfr[:, c4_i] = 2 * tfr[:, c4_i] - tfr[:, cz_i]
 
     # pick channels, down-sample time
-    tfr = tfr[..., ::2]
-    times = times[::2]
+    # tfr = tfr[..., ::2]
+    # times = times[::2]
 
-    epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr, times, freqs,
-                                          verbose=verbose, events=on_task_events, event_id=meta_data[f'{part}_event_ids'])
-    gen_erds_plots(epochs, subject, meta_data[f'{part}_event_ids'],
-                   out_folder=f'{output_path}/figures/combined_{part}_c34-cz-{norm_c34_w_cz}',
-                   freqs=freqs, comp_time_freq=True, comp_tf_clusters=False, channels=channels,
-                   baseline=meta_data[f'{part}_baseline'], apply_baseline=False, copy=False)
+    epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr, times, freqs, verbose=verbose,
+                                          events=on_task_events, event_id=meta_data[f'{part}_event_ids'])
+    epochs = epochs.pick(channels)
 
-    # tf clustering can only be done when the 'percent' baselining option is used
-    # percent scales the tfr data into having negative and positive values, which is then used in the plotting
-    #   function to determine significant positive (synchronization) or negative (desync) values
-    if meta_data['tfr_baseline_mode'] == 'percent':
+    # time-freq spectrograms
+    out_folder = f'{output_path}/figures/erds_combined_{part}_c34-cz-{norm_c34_w_cz}'
+    vmin, vmax = -1, 1.5
+    cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+
+    for event in event_ids.keys():
+        tfr_ev = epochs[event]
+        fig, axes = plt.subplots(1, len(channels) + 1, figsize=(14, 4),
+                                 gridspec_kw={"width_ratios": [10] * len(channels) + [1]})
+
+        for ch, ax in enumerate(axes[:-1]):  # for each channel
+            tfr_ev.average().plot([ch], cmap="RdBu_r", cnorm=cnorm, axes=ax, colorbar=False,
+                                  show=False, mask=None, mask_style=None)
+            ax.set_title(epochs.ch_names[ch], fontsize=10)
+            ax.axvline(0, linewidth=1, color="black", linestyle=":")  # event
+
+        cbar_src = axes[0].images[-1] if len(axes[0].images) > 0 else axes[0].collections[0]
+        fig.colorbar(cbar_src, cax=axes[-1]).ax.set_yscale("linear")
+        fig.suptitle(f"ERDS ({event})")
+        os.makedirs(out_folder, exist_ok=True)
+        fig.savefig(f'{out_folder}/{subject}_erds_{event}.png')
+
+    # ERDS plots
+    fois = {'theta': (4, 7), 'wide_mu': (iaf - 2, iaf + 2), 'tight_mu': (iaf - 1, iaf + 1),
+            'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24),
+            'wide_gamma': (30, 48), 'low_gamma': (25, 40), 'high_gamma': (40, 48)}
+
+    fig = plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False)
+    fig_shifted = plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=True)
+
+    fig.savefig(f'{out_folder}/{subject}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=350)
+    fig_shifted.savefig(f'{out_folder}/{subject}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
+    plt.close('all')
+
+    # DEPRECATED
+    if run_deprecated:
         gen_erds_plots(epochs, subject, meta_data[f'{part}_event_ids'],
-                       out_folder=f'{output_path}/figures/combined_clust_{part}_c34-cz-{norm_c34_w_cz}', freqs=freqs,
-                       comp_time_freq=True, comp_tf_clusters=True, channels=channels,
+                       out_folder=f'{output_path}/figures/combined_{part}_c34-cz-{norm_c34_w_cz}',
+                       freqs=freqs, comp_time_freq=True, comp_tf_clusters=False, channels=channels,
                        baseline=meta_data[f'{part}_baseline'], apply_baseline=False, copy=False)
+
+        # tf clustering can only be done when the 'percent' baselining option is used
+        # percent scales the tfr data into having negative and positive values, which is then used in the plotting
+        #   function to determine significant positive (synchronization) or negative (desync) values
+        if meta_data['tfr_baseline_mode'] == 'percent':
+            gen_erds_plots(epochs, subject, meta_data[f'{part}_event_ids'],
+                           out_folder=f'{output_path}/figures/combined_clust_{part}_c34-cz-{norm_c34_w_cz}', freqs=freqs,
+                           comp_time_freq=True, comp_tf_clusters=True, channels=channels,
+                           baseline=meta_data[f'{part}_baseline'], apply_baseline=False, copy=False)
 
     streams_data.close()
 
@@ -778,16 +931,20 @@ def main(
 
 # TODO upload new h5 versions
 # TODO remove bad epochs - use quality control function in epoching functions
+# TODO actually use IAF
 
 
 if __name__ == '__main__':
-    main(subject='0717b399', session_ids=range(1, 12),
-         rerun_proc=True, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    main(rerun_proc=False, norm_c34_w_cz=True)
 
-    main(subject='6808dfab', session_ids=range(1, 4),
-         rerun_proc=True, do_plot=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    main(subject='0717b399', session_ids=range(1, 12), baseline=(-1.5, -1), filter_percentile=90,
+         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+
+    # main(subject='6808dfab', session_ids=range(1, 4),
+    #      rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
 
     # TODO try more settings
+    # TODO see if subsets of sessions perform different
 
     # main(subject='0717b399', session_ids=range(1, 9),
     #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
