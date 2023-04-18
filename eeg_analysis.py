@@ -657,8 +657,12 @@ def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show
                 label = event if ch_i == 0 else '_nolegend_'
                 axes[foi_i, ch_i].plot(times, tfr_f_ev_mean[ch_i], label=label, alpha=.85, color=colors[ev_i])
                 axes[foi_i, ch_i].set_ylim(ylim)
-                if foi_i == 0:
+                if ev_i == 0:
                     axes[foi_i, ch_i].axvline([0], *ylim, color='black')
+                    low_cf, high_cf = np.percentile(tfr_f_ev, [10, 90])
+                    axes[foi_i, ch_i].axhline([low_cf], times[0], times[-1], color='gray')
+                    axes[foi_i, ch_i].axhline([high_cf], times[0], times[-1], color='gray')
+                if foi_i == 0:
                     axes[foi_i, ch_i].set_title(ch)
                 if ch_i == 0:
                     axes[foi_i, ch_i].set_ylabel(foi_name)
@@ -687,19 +691,16 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
     event_ids = meta_data[f'{part}_event_ids']
 
     # C3-Cz, C4-Cz
-    tfr = streams_data[f'tfr_epochs_on_{part}'][:]
+    tfr_orig = streams_data[f'tfr_epochs_on_{part}'][:]
     if norm_c34_w_cz:
         cz_i = eeg_info['ch_names'].index('Cz')
         c3_i = eeg_info['ch_names'].index('C3')
         c4_i = eeg_info['ch_names'].index('C4')
-        tfr[:, c3_i] = 2 * tfr[:, c3_i] - tfr[:, cz_i]
-        tfr[:, c4_i] = 2 * tfr[:, c4_i] - tfr[:, cz_i]
+        tfr_orig[:, c3_i] = 2 * tfr_orig[:, c3_i] - tfr_orig[:, cz_i]
+        tfr_orig[:, c4_i] = 2 * tfr_orig[:, c4_i] - tfr_orig[:, cz_i]
 
-    # pick channels, down-sample time
-    # tfr = tfr[..., ::2]
-    # times = times[::2]
-
-    epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr, times, freqs, verbose=verbose,
+    # create epochs
+    epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr_orig, times, freqs, verbose=verbose,
                                           events=on_task_events, event_id=meta_data[f'{part}_event_ids'])
     epochs = epochs.pick(channels)
 
@@ -739,6 +740,13 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
     # DEPRECATED
     if run_deprecated:
+        # old algo wastes resources like no tomorrow
+        tfr_orig = tfr_orig[..., ::2]
+        times = times[::2]
+        epochs = mne.time_frequency.EpochsTFR(eeg_info, tfr_orig, times, freqs, verbose=verbose,
+                                              events=on_task_events, event_id=meta_data[f'{part}_event_ids'])
+        epochs = epochs.pick(channels)
+
         gen_erds_plots(epochs, subject, meta_data[f'{part}_event_ids'],
                        out_folder=f'{output_path}/figures/combined_{part}_c34-cz-{norm_c34_w_cz}',
                        freqs=freqs, comp_time_freq=True, comp_tf_clusters=False, channels=channels,
@@ -758,7 +766,7 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
 def main(
     subject='0717b399',  # 0717b399 | 6808dfab
-    session_ids=range(1, 12),  # range(1, 12) | range(1, 4)
+    session_ids=range(1, 13),  # range(1, 12) | range(1, 4)
     freq_rng=(2, 80),  # min and max frequency to sample (see how below)
     nfreq=100,  # number of frequency to sample in freq_rng
     n_cycles=None,
@@ -936,12 +944,17 @@ def main(
 
 if __name__ == '__main__':
     main(rerun_proc=False, norm_c34_w_cz=True)
+    main(rerun_proc=False, norm_c34_w_cz=False)
 
-    main(subject='0717b399', session_ids=range(1, 12), baseline=(-1.5, -1), filter_percentile=90,
+    main(subject='0717b399', session_ids=range(1, 13), baseline=(-1.5, -1), filter_percentile=90,
          rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    main(subject='0717b399', session_ids=range(1, 13), baseline=(-1.5, -1), filter_percentile=90,
+         rerun_proc=False, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
 
-    # main(subject='6808dfab', session_ids=range(1, 4),
-    #      rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+    main(subject='6808dfab', session_ids=range(1, 4),
+         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    main(subject='6808dfab', session_ids=range(1, 4),
+         rerun_proc=False, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
 
     # TODO try more settings
     # TODO see if subsets of sessions perform different

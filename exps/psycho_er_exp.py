@@ -48,7 +48,7 @@ def fire_event(win: visual.Window, lsl_outlet: StreamOutlet, vis=None, tone=None
 def experiment():
 
     # load cfg
-    exp_cfg_path = sys.argv[1] if len(sys.argv) > 1 else 'config\\lr_finger\\exp_me_l_r_lr_stim-w-dots.json'
+    exp_cfg_path = sys.argv[1] if len(sys.argv) > 1 else '..\\config\\lr_finger\\exp_me_l_r_lr_stim-w-dots.json'
     exp_name = exp_cfg_path[exp_cfg_path.rfind('\\') + 1:exp_cfg_path.rfind('.')]
     with open(exp_cfg_path, 'rt') as f:
         exp_cfg = json.load(f)

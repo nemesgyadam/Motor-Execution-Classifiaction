@@ -17,7 +17,7 @@ def gen_participant_id():
         print('ERROR: Parts of date are not int or no space in name detected!', file=sys.stderr)
         return None
 
-    to_hash = f'{name}{int(year)}{int(month)}{int(day)}'.replace(' ','').lower()
+    to_hash = f'{name.lower()}{int(year)}{int(month)}{int(day)}'.replace(' ', '').lower()
     hashed = hashlib.md5(to_hash.encode())
     return hashed.hexdigest()[:8]
 
