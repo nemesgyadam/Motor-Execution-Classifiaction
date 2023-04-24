@@ -129,6 +129,10 @@ def main(**kwargs):
     cfg.update(kwargs)
     pprint(cfg)
 
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+
     # wandb.init(project='eeg-motor-execution', config=cfg)
     mne.set_log_level(False)
 
@@ -224,9 +228,6 @@ def main(**kwargs):
 
 
 if __name__ == '__main__':
-    random.seed(42)
-    np.random.seed(42)
-    torch.manual_seed(42)
     torch.use_deterministic_algorithms(True)
 
     models_to_try = [
