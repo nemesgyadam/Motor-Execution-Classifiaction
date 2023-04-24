@@ -767,7 +767,7 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 def main(
     subject='0717b399',  # 0717b399 | 6808dfab
     session_ids=range(1, 13),  # range(1, 12) | range(1, 4)
-    freq_rng=(2, 80),  # min and max frequency to sample (see how below)
+    freq_rng=(2, 40),  # min and max frequency to sample (see how below)
     nfreq=100,  # number of frequency to sample in freq_rng
     n_cycles=None,
     tfr_mode='multitaper',  # cwt | multitaper: multitaper is smoother on time
@@ -775,7 +775,7 @@ def main(
     n_jobs=6,
     verbose=False,
     rerun_proc=False,  # whether to run preprocessiong regardless the h5 file is already created or not
-    bandpass_freq=(.5, 80),
+    bandpass_freq=(.5, 50),
     notch_freq=(50, 100),
     baseline=(-1, -.05),  # normalize signal according to the baseline interval
     eeg_sfreq=250, gamepad_sfreq=125,  # sampling frequencies
@@ -937,24 +937,22 @@ def main(
                               norm_c34_w_cz, verbose, 'break')
 
 
-# TODO upload new h5 versions
 # TODO remove bad epochs - use quality control function in epoching functions
-# TODO actually use IAF
 
 
 if __name__ == '__main__':
-    main(rerun_proc=False, norm_c34_w_cz=True)
-    main(rerun_proc=False, norm_c34_w_cz=False)
 
-    main(subject='0717b399', session_ids=range(1, 13), baseline=(-1.5, -1), filter_percentile=90,
-         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    main(subject='0717b399', session_ids=range(1, 13), baseline=(-1.5, -1), filter_percentile=90,
-         rerun_proc=False, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+    subjects = ['0717b399', 'a9223e93']
+    rngs = [range(1, 13), range(1, 5)]
+    # TODO get number of folders automatically in subject
+    for subject, rng in zip(subjects, rngs):
+        main(subject=subject, session_ids=rng, rerun_proc=True, norm_c34_w_cz=True)
+        main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)
 
-    main(subject='6808dfab', session_ids=range(1, 4),
-         rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    main(subject='6808dfab', session_ids=range(1, 4),
-         rerun_proc=False, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
+    # main(subject='6808dfab', session_ids=range(1, 4),
+    #      rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
+    # main(subject='6808dfab', session_ids=range(1, 4),
+    #      rerun_proc=False, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
 
     # TODO try more settings
     # TODO see if subsets of sessions perform different

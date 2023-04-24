@@ -92,13 +92,14 @@ def main(**kwargs):
     cfg = dict(
         subject='0717b399',
         # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-80-100',
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
+        resample=0.25,  # no resample = 1.
 
         batch_size=8,
         num_workers=0,
@@ -108,9 +109,9 @@ def main(**kwargs):
         gradient_clip_val=1,
         loss_fun=NLLLoss,
         # number of times to randomly re-split train and valid, metrics are averaged across splits
-        n_fold=None,
+        n_fold=1,
         # number of sessions to use as validation in k-fold cross-valid - all combinations are computed
-        leave_k_out=1,
+        leave_k_out=None,
 
         model_cls=ShallowFBCSPNet,  # default model
         # number of samples to include in each window of the decoder - now set to the full recording length
@@ -163,7 +164,7 @@ def main(**kwargs):
                                  final_conv_length=cfg['final_conv_length']),
             Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
                           final_conv_length=cfg['final_conv_length']),
-            EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=250),
+            EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=data.sfreq),
             EEGITNet=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
             EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
                           final_conv_length=cfg['final_conv_length']),

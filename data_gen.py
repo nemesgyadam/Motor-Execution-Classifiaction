@@ -5,6 +5,8 @@ import h5py
 import pickle
 
 from functools import partial
+
+import scipy.signal
 import torch
 import numpy as np
 from braindecode.datasets import create_from_mne_raw, create_from_mne_epochs, create_from_X_y
@@ -27,6 +29,7 @@ from pprint import pprint
 from itertools import combinations
 from typing import Union
 from skimage.transform import resize
+from scipy.signal import resample
 
 
 class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task, on_break, on_pull
@@ -65,14 +68,21 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
         events_cls = mapper(events)
 
         assert len(epochs) == len(events_cls)
-        self.epochs = epochs[..., within_window]
-        self.events_cls = events_cls
+        epochs = epochs[..., within_window]
+        times = times[within_window]
         # self.norm = Compose([ToTensor(), Normalize([.5] * epochs.shape[1], [.5] * epochs.shape[1])])
 
+        # resample time
+        self.sfreq = eeg_info['sfreq']
+        if cfg['resample'] != 1:
+            epochs, times = resample(epochs, int(cfg['resample'] * epochs.shape[-1]), t=times, axis=-1)
+            self.sfreq *= cfg['resample']
+
         # standardize by epoch
-        means = self.epochs.mean(axis=-1, keepdims=True)
-        stds = self.epochs.std(axis=-1, keepdims=True)
-        self.epochs = (self.epochs - means) / stds
+        means = epochs.mean(axis=-1, keepdims=True)
+        stds = epochs.std(axis=-1, keepdims=True)
+        self.epochs = (epochs - means) / stds
+        self.events_cls = events_cls
 
         # splitting info
         self.session_idx = streams_data[f'on_{epoch_type}_session_idx'][relevant_epochs]
