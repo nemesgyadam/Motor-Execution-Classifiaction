@@ -2,6 +2,8 @@ import mne
 import h5py
 import pickle
 import sys
+import matplotlib
+matplotlib.use('Qt5Agg')  # TODO
 
 from functools import partial
 import torch
@@ -27,21 +29,21 @@ import wandb
 from pprint import pprint
 
 from data_gen import *
-from braindecode_train_tdom import BrainDecodeClassification, GatherMetrics
+from train_tdom import BrainDecodeClassification, GatherMetrics
 
 
 def main(**kwargs):
 
     cfg = dict(
         subject='0717b399',
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-80-100',
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         eeg_chans=['C3', 'C4', 'Cz'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'Cz', 'C4']
         crop_t=(-.2, None),
         rm_cz=True,
-        erds_bands=[(4, 7), (7, 13), (13, 40)],  # None | [(min_hz, max_hz), ...]
+        erds_bands=None, #[(4, 7), (7, 13), (13, 40)],  # None | [(min_hz, max_hz), ...]
         merge_bands_into_chans=True,
         resize_t=None,  # resize time dim
         resize_f=None,  # resize freq dim
@@ -79,6 +81,25 @@ def main(**kwargs):
 
     # manual data loading
     data = EEGTfrDomainDataset(streams_path, meta_path, cfg)
+
+    # TODO RGB spectrograms
+    imgs = np.transpose(data.epochs, (0, 2, 3, 1))
+    imgs_norm = (imgs - imgs.min()) / (imgs.max() - imgs.min())
+
+    for ev in np.unique(data.events_cls):
+        plt.figure()
+        m = imgs[data.events_cls == ev].mean(axis=0)
+        plt.imshow(m)
+        plt.title(f'{ev}')
+    plt.show(block=False)
+
+    for i, (img, ev) in enumerate(zip(imgs, data.events_cls)):
+        plt.figure()
+        img = (img - img.min()) / (img.max() - img.min())
+        plt.imshow(img)
+        plt.title(ev)
+        plt.show()
+
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
     ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val

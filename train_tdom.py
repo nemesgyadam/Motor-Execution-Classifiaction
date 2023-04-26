@@ -48,6 +48,7 @@ class BrainDecodeClassification(L.LightningModule):
         self.model = model
         self.loss_fun = cfg['loss_fun']()
         self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=len(cfg['events_to_cls']))
+        self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
 
         self.model.requires_grad_(True)
         print(self.model)
@@ -95,11 +96,11 @@ def main(**kwargs):
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        events_to_cls={'left': 0, 'right': 1, 'left-right': [0, 1], 'nothing': 2},  # classes to predict
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
-        resample=0.25,  # no resample = 1.
+        resample=0.5,  # no resample = 1.
 
         batch_size=8,
         num_workers=0,
@@ -109,7 +110,7 @@ def main(**kwargs):
         gradient_clip_val=1,
         loss_fun=NLLLoss,
         # number of times to randomly re-split train and valid, metrics are averaged across splits
-        n_fold=1,
+        n_fold=2,
         # number of sessions to use as validation in k-fold cross-valid - all combinations are computed
         leave_k_out=None,
 
@@ -246,16 +247,17 @@ if __name__ == '__main__':
     metricz = {}
     fails = []
     for model in models_to_try:
-        try:
+        # try:  # TODO
+        if True:
             metrics = main(model_cls=model, batch_size=8)
             metricz[model.__name__] = metrics
             print('=' * 80, '\n', '=' * 80)
             print(model.__name__, '|', metrics)
             print('=' * 80, '\n', '=' * 80)
             pprint(metricz)
-        except Exception as e:
-            print(e, file=sys.stderr)
-            fails.append(model.__name__)
+        # except Exception as e:
+        #     print(e, file=sys.stderr)
+        #     fails.append(model.__name__)
 
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
