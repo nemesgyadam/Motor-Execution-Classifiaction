@@ -66,7 +66,7 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
         # load as X, y into braindecode
         # mapper = np.vectorize(lambda x: event_id_to_cls[x])
         # events_cls = mapper(events)
-        events_cls = map(lambda e: event_id_to_cls[e], events)
+        events_cls = list(map(lambda e: event_id_to_cls[e], events))
 
         # prepare multi-hot
         is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
