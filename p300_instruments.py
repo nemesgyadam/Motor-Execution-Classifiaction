@@ -24,7 +24,7 @@ matplotlib.use('Qt5Agg')
 
 csvs = ['../p300/eeg_data20230503072054.csv', '../p300/eeg_data20230503072725.csv']
 
-csv_path = csvs[0]
+csv_path = csvs[1]
 
 # df = pd.read_csv(csv_path)
 
@@ -57,9 +57,10 @@ eeg = stream[:8]
 sfreq = 250  # Hz
 ch_names = ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']  # unicorn
 verbose = False
+p300_chans = ['Fz', 'Cz', 'Pz', 'Oz', 'PO7', 'PO8']
 
-
-eeg -= np.mean(eeg, axis=0)
+# TODO
+# eeg -= np.mean(eeg, axis=0)
 
 btn_begs = btn_presses[:-1:2]
 btn_ends = btn_presses[1::2]
@@ -78,36 +79,69 @@ for (btn_beg_t, btnb), (btn_end_t, btne) in zip(btn_begs, btn_ends):
     eeg_runs.append(eeg[:, r])
     flash_runs.append(flashes[(btn_beg_t < flashes[:, 0]) & (flashes[:, 0] < btn_end_t)])
 
+for run_i in range(len(eeg_runs)):
+    timestamp_run = timestamp_runs[run_i]
+    eeg_run = eeg_runs[run_i]
+    flash_run = flash_runs[run_i]
+    btn = btn_begs[run_i][1]
 
-timestamp_run = timestamp_runs[0]
-eeg_run = eeg_runs[0]
-flash_run = flash_runs[0]
-btn = btn_begs[0][1]
+    eeg_info = mne.create_info(ch_types='eeg', ch_names=ch_names, sfreq=sfreq)
+    raw = mne.io.RawArray(eeg_run, eeg_info, verbose=verbose)
+    std_1020 = mne.channels.make_standard_montage('standard_1020')
+    raw.set_montage(std_1020)
 
-eeg_info = mne.create_info(ch_types='eeg', ch_names=ch_names, sfreq=sfreq)
-raw = mne.io.RawArray(eeg_run, eeg_info, verbose=verbose)
-std_1020 = mne.channels.make_standard_montage('standard_1020')
-raw.set_montage(std_1020)
+    filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(1, 40, h_trans_bandwidth=5, n_jobs=4, verbose=verbose) \
+        .notch_filter(50, trans_bandwidth=1, n_jobs=4, verbose=verbose)
 
-filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(1, 40, h_trans_bandwidth=5, n_jobs=4, verbose=verbose) \
-    .notch_filter(50, trans_bandwidth=1, n_jobs=4, verbose=verbose)
+    events_run_i = np.array([np.argmin(np.abs(timestamp_run - f)) for f in flash_run[:, 0]])
+    events_run = np.stack([events_run_i, np.zeros_like(events_run_i), flash_run[:, 1].astype(events_run_i.dtype)], axis=1)
 
-events_run_i = np.array([np.argmin(np.abs(timestamp_run - f)) for f in flash_run[:, 0]])
-events_run = np.stack([events_run_i, np.zeros_like(events_run_i), flash_run[:, 1].astype(events_run_i.dtype)], axis=1)
+    baseline = (-.2, .05)
 
-baseline = (-.2, 0)
+    event_ids = {0, 1, 2, 3}
+    target_event_ids = {str(btn - 1): btn - 1}
+    epochs_target = mne.Epochs(filt_raw_eeg, events_run, event_id=target_event_ids, baseline=None, verbose=verbose,
+                               tmin=baseline[0], tmax=.5)
+    epochs_target.apply_baseline(baseline, verbose=verbose)
 
-event_ids = {0, 1, 2, 3}
-target_event_ids = {str(btn - 1): btn - 1}
-epochs_target = mne.Epochs(filt_raw_eeg, events_run, event_id=target_event_ids, baseline=None, verbose=verbose,
-                           tmin=baseline[0], tmax=.5)
-epochs_target.apply_baseline(baseline, verbose=verbose)
+    rest_event_ids = {str(e): e for e in event_ids.difference(target_event_ids.keys())}
+    epochs_rest = mne.Epochs(filt_raw_eeg, events_run, event_id=rest_event_ids, baseline=None, verbose=verbose,
+                             tmin=baseline[0], tmax=.5)
+    epochs_rest.apply_baseline(baseline, verbose=verbose)
 
-rest_event_ids = {str(e): e for e in event_ids.difference(target_event_ids.keys())}
-epochs_rest = mne.Epochs(filt_raw_eeg, events_run, event_id=rest_event_ids, baseline=None, verbose=verbose,
-                         tmin=baseline[0], tmax=.5)
-epochs_rest.apply_baseline(baseline, verbose=verbose)
+    ylim = (min(epochs_rest.get_data().mean((0, 1)).min(), epochs_target.get_data().mean((0, 1)).min()) * 1e6 * 2,
+            max(epochs_rest.get_data().mean((0, 1)).max(), epochs_target.get_data().mean((0, 1)).max()) * 1e6 * 2)
+    fig, axes = plt.subplots(len(p300_chans) + 1, 2)
+    fig.suptitle(f'btn: {btn}')
 
-for elec in ['Fz', 'Cz', 'Pz', 'Oz']:
-    epochs_target.average(picks=elec).plot(titles=f'target {elec}')
-    epochs_rest.average(picks=elec).plot(titles=f'rest {elec}')
+    # epochs_target.plot(butterfly=True, scalings=80, n_epochs=3, picks=elecs)
+
+    for ei, elec in enumerate(p300_chans):
+        epochs_target.average(picks=elec).plot(titles=f'target {elec}', show=False, axes=axes[ei, 0], hline=[0])
+        epochs_rest.average(picks=elec).plot(titles=f'rest {elec}', show=False, axes=axes[ei, 1], hline=[0])
+        # for avg in epochs_rest.average(picks=elec, by_event_type=True):
+        #     avg.plot(titles=f'rest {elec}', show=False, axes=axes[ei, 1])
+        # axes[ei, 0].set_ylim(ylim)
+        # axes[ei, 1].set_ylim(ylim)
+
+    epochs_target.average(picks=p300_chans).plot(titles=f'target', show=False, axes=axes[-1, 0], hline=[0])
+    epochs_rest.average(picks=p300_chans).plot(titles=f'rest', show=False, axes=axes[-1, 1], hline=[0])
+
+    _, ax = plt.subplots()
+    target = epochs_target.get_data(picks=p300_chans).mean((0, 1))
+    rest = epochs_rest.get_data(picks=p300_chans).mean((0, 1))
+    ax.plot(epochs_target.times, target, label='target combined', color='red')
+    ax.plot(epochs_target.times, rest, label='rest combined', color='black')
+    ax.set_title(f'btn: {btn}')
+    xlim = ax.get_xlim()
+    ax.hlines([0], *xlim, colors='gray')
+    ax.set_xlim(xlim)
+    ax.legend()
+
+    # for avg in epochs_rest.average(picks=elecs, by_event_type=True):
+    #     avg.plot(titles=f'rest', show=False, axes=axes[-1, 1])
+    # axes[-1, 0].set_ylim(ylim)
+    # axes[-1, 1].set_ylim(ylim)
+    plt.tight_layout()
+
+    plt.show(block=True)
