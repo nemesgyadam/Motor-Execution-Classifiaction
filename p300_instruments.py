@@ -17,14 +17,23 @@ from glob import glob
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.pyplot import cm
 from datetime import datetime
+from copy import deepcopy
+import pickle
 
 import matplotlib
 matplotlib.use('Qt5Agg')
 
 
-csvs = ['../p300/eeg_data20230503072054.csv', '../p300/eeg_data20230503072725.csv']
 
-csv_path = csvs[1]
+
+# TODO TRY CUTTING FREQ AT 20HZ
+
+
+
+csvs = ['../p300/eeg_data20230503072054.csv', '../p300/eeg_data20230503072725.csv',
+        '../p300/eeg_data20230515085424.csv']
+
+csv_path = csvs[2]
 
 # df = pd.read_csv(csv_path)
 
@@ -79,7 +88,11 @@ for (btn_beg_t, btnb), (btn_end_t, btne) in zip(btn_begs, btn_ends):
     eeg_runs.append(eeg[:, r])
     flash_runs.append(flashes[(btn_beg_t < flashes[:, 0]) & (flashes[:, 0] < btn_end_t)])
 
-for run_i in range(len(eeg_runs)):
+times = None
+all_epochs_target, all_epochs_rest = [], []
+training_data = dict()
+
+for run_i in range(len(eeg_runs)):  # TODO !!!!! range(len(eeg_runs)):   range(3)
     timestamp_run = timestamp_runs[run_i]
     eeg_run = eeg_runs[run_i]
     flash_run = flash_runs[run_i]
@@ -127,9 +140,17 @@ for run_i in range(len(eeg_runs)):
     epochs_target.average(picks=p300_chans).plot(titles=f'target', show=False, axes=axes[-1, 0], hline=[0])
     epochs_rest.average(picks=p300_chans).plot(titles=f'rest', show=False, axes=axes[-1, 1], hline=[0])
 
+    all_epochs_target.append(deepcopy(epochs_target.average(picks=p300_chans).data))
+    all_epochs_rest.append(deepcopy(epochs_rest.average(picks=p300_chans).data))
+
+    times = epochs_target.times
+    training_data[btn] = dict(target=epochs_target.get_data(picks=p300_chans),
+                              rest=epochs_rest.get_data(picks=p300_chans), times=times)
+
     _, ax = plt.subplots()
     target = epochs_target.get_data(picks=p300_chans).mean((0, 1))
     rest = epochs_rest.get_data(picks=p300_chans).mean((0, 1))
+    times = epochs_target.times
     ax.plot(epochs_target.times, target, label='target combined', color='red')
     ax.plot(epochs_target.times, rest, label='rest combined', color='black')
     ax.set_title(f'btn: {btn}')
@@ -145,3 +166,23 @@ for run_i in range(len(eeg_runs)):
     plt.tight_layout()
 
     plt.show(block=True)
+
+with open('tmp/p300_data.pkl', 'wb') as f:
+    pickle.dump(training_data, f)
+
+final_target = np.asarray(all_epochs_target).mean(axis=(0, 1))
+final_rest = np.asarray(all_epochs_rest).mean(axis=(0, 1))
+
+_, ax = plt.subplots()
+target = final_target
+rest = final_rest
+ax.plot(times, target, label='target combined', color='red')
+ax.plot(times, rest, label='rest combined', color='black')
+ax.set_title(f'COMBINED')
+xlim = ax.get_xlim()
+ax.hlines([0], *xlim, colors='gray')
+ax.set_xlim(xlim)
+ax.legend()
+
+plt.show(block=True)
+
