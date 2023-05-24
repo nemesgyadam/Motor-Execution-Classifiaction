@@ -12,11 +12,15 @@ from mi_sanity import gen_erds_plots
 import pickle
 import h5py
 from glob import glob
+import matplotlib
+matplotlib.use('Qt5Agg')
+
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.pyplot import cm
 
 
-def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, new_id=None, fill_na=None, occur=True):
+def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, new_id=None, fill_na=None,
+                          occur=True, or_occur=False):
     """Define new events by (non)-co-occurrence of existing events.
 
     This function can be used to evaluate events depending on the
@@ -31,7 +35,7 @@ def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, n
     reference_id : int
         The reference event. The event defining the epoch of interest.
     target_ids : list[int]
-        The target events that should not happen in the vicinity of reference_id.
+        The target events that should (occur=True) or should not (occur=False) happen in the vicinity of reference_id.
     sfreq : float
         The sampling frequency of the data.
     tmin : float
@@ -45,6 +49,8 @@ def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, n
         window specified. If None, the 'null' events will be dropped.
     occur: bool
         If True, check for cooccurrance, if False, check for avoidance.
+    or_occur: bool
+        If True, check for co-/non-occurrance of multiple targets with an OR connection, not the default AND
 
     Returns
     -------
@@ -53,6 +59,9 @@ def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, n
     lag : ndarray
         Time lag between reference and target in milliseconds.
     """
+
+    assert fill_na is None
+
     if new_id is None:
         new_id = reference_id
 
@@ -61,40 +70,44 @@ def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, n
     imax = int(tmax * sfreq)
 
     new_events = []
-    lag = []
+    # lag = []  # no meaning of lag
     for event in events.copy().astype(int):
         if event[2] == reference_id:
             lower = event[0] + imin
             upper = event[0] + imax
             
             tcrit = (events[:, 0] > lower) & (events[:, 0] < upper)
+            targ_crits = [events[:, 2] == tid for tid in target_ids]
+            crit = [tcrit & targ_crit for targ_crit in targ_crits]
+
+            # # plot neighboring events for testing
+            # if not occur:
+            #     plt.figure()
+            #     plt.vlines(events[:, 0], -1, 1)
+            #     plt.xlim(lower - 10, upper)
+            #     for et, _, ev in events[tcrit]:
+            #         plt.text(et - 4, .6, f'{ev}')
+            #     plt.show()
+
             if occur:
-                res = np.logical_and.reduce([np.any(tcrit & (events[:, 2] == tid)) for tid in target_ids])
+                if not or_occur:  # default
+                    crit = np.logical_and.reduce([c.any() for c in crit])
+                else:  # OR
+                    crit = np.logical_or.reduce([c.any() for c in crit])
+                # crit = np.logical_and.reduce([np.any(tcrit & (events[:, 2] == tid)) for tid in target_ids])
             else:  # non-co-occurance
-                res = ~np.logical_or.reduce([tcrit & (events[:, 2] == tid) for tid in target_ids])
-            res = events[res]
-            
-            # res = events[(events[:, 0] > lower) &
-                        #  (events[:, 0] < upper) & (events[:, 2] == target_id)]
-            if res.any():
-                lag += [event[0] - res[0][0]]
+                if not or_occur:
+                    crit = ~np.logical_or.reduce([c.any() for c in crit])
+                else:  # OR, but negated, u know
+                    crit = ~np.logical_and.reduce([c.any() for c in crit])
+                # crit = ~np.logical_or.reduce([tcrit & (events[:, 2] == tid) for tid in target_ids])
+
+            if crit:
                 event[2] = new_id
                 new_events += [event]
-            elif fill_na is not None:
-                event[2] = fill_na
-                new_events += [event]
-                lag.append(np.nan)
 
     new_events = np.array(new_events)
-
-    with np.errstate(invalid='ignore'):  # casting nans
-        lag = np.abs(lag, dtype='f8')
-    if lag.any():
-        lag *= tsample
-    else:
-        lag = np.array([])
-
-    return new_events if new_events.any() else np.array([]), lag
+    return new_events if new_events.any() else np.array([]), None  # no lag computed, fuck it
 
 # https://gist.github.com/robertoostenveld/6f5f765268847f684585be9e60ecfb67
 # https://github.com/unicorn-bi/Unicorn-Suite-Hybrid-Black/blob/master/Unicorn%20.NET%20API/UnicornLSL/UnicornLSL/MainUI.cs#L338
@@ -251,15 +264,6 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     # filter and run tfr on the whole recording (if possible)
     filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(*bandpass_freq, h_trans_bandwidth=5, n_jobs=n_jobs, verbose=verbose) \
         .notch_filter(notch_freq, trans_bandwidth=1, n_jobs=n_jobs, verbose=verbose)
-
-    # one_big_epoch = filt_raw_eeg._data[np.newaxis, ...]  # hacked the system
-    # filt_tfr_eeg = mne.time_frequency.tfr_array_morlet(one_big_epoch, shared_sfreq, freqs, n_cycles, output='power', n_jobs=n_jobs)[0, ...]
-    # TODO could just use mne.time_frequency.tfr.cwt
-    #   + mne.time_frequency.tfr.morlet without epoch hacking
-    # TODO check answers here: https://mne.discourse.group/t/get-epochstfr-object-from-whole-signal-tfr-and-events/6435
-    # TODO another way to get epochstfr is to create a dummy numpy array with np.arange, apply epoching by event,
-    #   then use the indices to manually epoch tfr and create an EpochsTFR
-    # TODO and use fft_or_cwt
     
     # TODO autoreject for epoch removal:
     #   https://github.com/autoreject/autoreject/
@@ -284,12 +288,13 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                                                    shared_sfreq, tmin=1e-4, tmax=reaction_tmax,
                                                    new_id=right_success_marker)
     lr_success = define_target_events2(all_events, event_dict["left-right"], [event_dict['L2-on'], event_dict['R2-on']],
-                                       shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=lr_success_marker)
+                                       shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=lr_success_marker,
+                                       occur=True, or_occur=False)
     # when nothing should be pressed, it just becomes a fucking headache (implemented it myself in the end)
     # = mne is straight dogshit
     nothing_success = define_target_events2(all_events, event_dict["nothing"], [event_dict['L2-on'], event_dict['R2-on']],
                                             shared_sfreq, tmin=1e-4, tmax=exp_cfg['event-duration']['task'][0],
-                                            new_id=nothing_success_marker, occur=False)
+                                            new_id=nothing_success_marker, occur=False, or_occur=False)
 
     left_success_pull = mne.event.define_target_events(all_events, event_dict['L2-on'], event_dict['left'],
                                                        shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
@@ -317,18 +322,19 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     break_marker = exp_cfg['events']['break']['marker']
     break_success_marker = int(f'{break_marker}0')
     break_success = define_target_events2(all_events, break_marker, [event_dict['L2-off'], event_dict['R2-off']],
-                                          shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=break_success_marker)
+                                          shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=break_success_marker,
+                                          occur=True, or_occur=True)
     
     all_events = np.concatenate([all_events, left_success[0], right_success[0], lr_success[0], nothing_success[0],
                                  break_success[0], left_success_pull[0], right_success_pull[0],
                                  lr_success_pull[0]], axis=0)
     
     # some stats
-    num_old = [(all_events[:, 2] == event_dict[ev]).sum() for ev in ['left', 'right', 'left-right', 'nothing']]
+    num_orig = [(all_events[:, 2] == event_dict[ev]).sum() for ev in ['left', 'right', 'left-right', 'nothing', 'break']]
     num_succ = [(all_events[:, 2] == ev).sum() for ev in [left_success_marker, right_success_marker, lr_success_marker,
-                                                          nothing_success_marker]]
+                                                          nothing_success_marker, break_success_marker]]
     print('num of events successful/originally:',
-          {name: f'{nsucc}/{nold}' for name, nold, nsucc in zip(['left', 'right', 'left-right', 'nothing'], num_old, num_succ)})
+          {name: f'{nsucc}/{nold}' for name, nold, nsucc in zip(['left', 'right', 'left-right', 'nothing'], num_orig, num_succ)})
 
     # order events
     all_events = all_events[np.argsort(all_events[:, 0]), :]
@@ -779,7 +785,7 @@ def main(
     notch_freq=(50, 100),
     baseline=(-1, -.05),  # normalize signal according to the baseline interval
     eeg_sfreq=250, gamepad_sfreq=125,  # sampling frequencies
-    reaction_tmax=0.5,  # max amount of time between cue and gamepad trigger pull allowed in sec
+    reaction_tmax=0.6,  # max amount of time between cue and gamepad trigger pull allowed in sec
     store_per_session_recs=False,  # store extra preprocessed fif and h5 files, native to mne
     # see: https://mne.tools/stable/generated/mne.time_frequency.EpochsTFR.html#mne.time_frequency.EpochsTFR.apply_baseline
     tfr_baseline_mode='percent',
@@ -945,5 +951,6 @@ if __name__ == '__main__':
                 for subj in subjects]
 
     for subject, sess_ids in zip(subjects, sessions):
-        main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False)
+        main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
+             reaction_tmax=.6)
         # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)
