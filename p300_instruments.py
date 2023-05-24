@@ -24,16 +24,35 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 
 
+def remove_artifacts(raw, perc=90):
+    # Extract the EEG data and channel names from the Raw object
+    data, times = raw[:, :]
+    data[np.abs(data) > np.percentile(np.abs(data), perc, axis=-1)[:, None]] = 0.
+    clean_raw = mne.io.RawArray(data, raw.info)
+    return clean_raw
+
+
+def filter_bad_epochs(epochs: mne.Epochs, percent_to_keep=90, copy=False, verbose=False) -> mne.Epochs:
+    """Drops those where the peak-to-peak values are greater than 'percent_to_keep' percent of all the epochs"""
+    epoch_data = epochs.get_data()
+    peak_to_peak = np.max(np.max(epoch_data, axis=-1) - np.min(epoch_data, axis=-1), axis=1)
+    limit_value = np.percentile(peak_to_peak, percent_to_keep)
+    # bad_epochs = epochs[peak_to_peak > limit_value]
+    # bad_epochs.plot(scalings=50, block=True)
+    epochs = epochs.copy() if copy else epochs
+    epochs.drop_bad(reject=dict(eeg=int(limit_value)), verbose=verbose)
+    # epochs.drop(peak_to_peak > limit_value)
+    return epochs
 
 
 # TODO TRY CUTTING FREQ AT 20HZ
 
 
-
 csvs = ['../p300/eeg_data20230503072054.csv', '../p300/eeg_data20230503072725.csv',
-        '../p300/eeg_data20230515085424.csv']
+        '../p300/eeg_data20230515085424.csv', '../p300/eeg_data20230522074211.csv']
 
-csv_path = csvs[2]
+csv_i = 2
+csv_path = csvs[csv_i]
 
 # df = pd.read_csv(csv_path)
 
@@ -64,6 +83,9 @@ eeg = stream[:8]
 
 
 sfreq = 250  # Hz
+cut_freq = (1, 20)
+baseline = (-.2, -.01)
+filter_percentile = 90
 ch_names = ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']  # unicorn
 verbose = False
 p300_chans = ['Fz', 'Cz', 'Pz', 'Oz', 'PO7', 'PO8']
@@ -92,7 +114,7 @@ times = None
 all_epochs_target, all_epochs_rest = [], []
 training_data = dict()
 
-for run_i in range(len(eeg_runs)):  # TODO !!!!! range(len(eeg_runs)):   range(3)
+for run_i in range(len(eeg_runs)):  # TODO !!!!! range(len(eeg_runs)):   range(3), range(1, 5)
     timestamp_run = timestamp_runs[run_i]
     eeg_run = eeg_runs[run_i]
     flash_run = flash_runs[run_i]
@@ -103,24 +125,25 @@ for run_i in range(len(eeg_runs)):  # TODO !!!!! range(len(eeg_runs)):   range(3
     std_1020 = mne.channels.make_standard_montage('standard_1020')
     raw.set_montage(std_1020)
 
-    filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(1, 40, h_trans_bandwidth=5, n_jobs=4, verbose=verbose) \
+    filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(*cut_freq, h_trans_bandwidth=5, n_jobs=4, verbose=verbose) \
         .notch_filter(50, trans_bandwidth=1, n_jobs=4, verbose=verbose)
+    # filt_raw_eeg = remove_artifacts(filt_raw_eeg, filter_percentile)
 
     events_run_i = np.array([np.argmin(np.abs(timestamp_run - f)) for f in flash_run[:, 0]])
     events_run = np.stack([events_run_i, np.zeros_like(events_run_i), flash_run[:, 1].astype(events_run_i.dtype)], axis=1)
 
-    baseline = (-.2, .05)
-
-    event_ids = {0, 1, 2, 3}
+    event_ids = {0, 1, 2, 3, 4, 5, 6, 7, 8}
     target_event_ids = {str(btn - 1): btn - 1}
     epochs_target = mne.Epochs(filt_raw_eeg, events_run, event_id=target_event_ids, baseline=None, verbose=verbose,
                                tmin=baseline[0], tmax=.5)
     epochs_target.apply_baseline(baseline, verbose=verbose)
+    epochs_target = filter_bad_epochs(epochs_target, filter_percentile, copy=False, verbose=verbose)
 
     rest_event_ids = {str(e): e for e in event_ids.difference(target_event_ids.keys())}
     epochs_rest = mne.Epochs(filt_raw_eeg, events_run, event_id=rest_event_ids, baseline=None, verbose=verbose,
                              tmin=baseline[0], tmax=.5)
     epochs_rest.apply_baseline(baseline, verbose=verbose)
+    epochs_rest = filter_bad_epochs(epochs_rest, filter_percentile, copy=False, verbose=verbose)
 
     ylim = (min(epochs_rest.get_data().mean((0, 1)).min(), epochs_target.get_data().mean((0, 1)).min()) * 1e6 * 2,
             max(epochs_rest.get_data().mean((0, 1)).max(), epochs_target.get_data().mean((0, 1)).max()) * 1e6 * 2)
@@ -167,7 +190,7 @@ for run_i in range(len(eeg_runs)):  # TODO !!!!! range(len(eeg_runs)):   range(3
 
     plt.show(block=True)
 
-with open('tmp/p300_data.pkl', 'wb') as f:
+with open(f'tmp/p300_data_{csv_i}_all.pkl', 'wb') as f:
     pickle.dump(training_data, f)
 
 final_target = np.asarray(all_epochs_target).mean(axis=(0, 1))

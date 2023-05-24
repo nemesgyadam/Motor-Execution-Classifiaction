@@ -59,7 +59,9 @@ class BrainDecodeClassification(L.LightningModule):
 
         # window is smaller than the epoch
         if len(yy.shape) == 3:
-            yy = yy.mean(dim=-1)
+            yy = yy.mean(dim=-1)  # TODO !!! it's possible that there is no relevant info in the first/last/middle window, so taking the mean here could ruin
+            # TODO HAVE A LAST WEIGHTING LAYER IMPLEMENTED
+            # TODO but this never runs with the models and data we have loaded rn
 
         loss = self.loss_fun(yy, y)
         return loss
@@ -231,7 +233,7 @@ def main(**kwargs):
 if __name__ == '__main__':
     torch.use_deterministic_algorithms(True)
 
-    models_to_try = [
+    models_to_try = [  # TODO
         ShallowFBCSPNet,
         Deep4Net,
         EEGInception,

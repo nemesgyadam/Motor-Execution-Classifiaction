@@ -766,7 +766,7 @@ def combined_session_analysis(subject, streams_path, meta_path, output_path, cha
 
 def main(
     subject='0717b399',  # 0717b399 | 6808dfab
-    session_ids=range(1, 13),  # range(1, 12) | range(1, 4)
+    session_ids=None,  # range(1, 12) | range(1, 4)
     freq_rng=(2, 40),  # min and max frequency to sample (see how below)
     nfreq=100,  # number of frequency to sample in freq_rng
     n_cycles=None,
@@ -937,56 +937,13 @@ def main(
                               norm_c34_w_cz, verbose, 'break')
 
 
-# TODO remove bad epochs - use quality control function in epoching functions
-
-
 if __name__ == '__main__':
 
-    subjects = ['0717b399', 'a9223e93']
-    rngs = [range(1, 13), range(1, 5)]
-    # TODO get number of folders automatically in subject
-    for subject, rng in zip(subjects, rngs):
-        main(subject=subject, session_ids=rng, rerun_proc=True, norm_c34_w_cz=True)
-        main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)
+    data_path = '../recordings'
+    subjects = [os.path.basename(s)[4:] for s in glob(f'{data_path}/sub-*')]  # like ['0717b399', 'a9223e93']
+    sessions = [[int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/sub-{subj}/ses-*')]
+                for subj in subjects]
 
-    # main(subject='6808dfab', session_ids=range(1, 4),
-    #      rerun_proc=True, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    # main(subject='6808dfab', session_ids=range(1, 4),
-    #      rerun_proc=False, do_plot=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
-
-    # TODO try more settings
-    # TODO see if subsets of sessions perform different
-
-    # main(subject='0717b399', session_ids=range(1, 9),
-    #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    #
-    # main(subject='6808dfab', session_ids=range(1, 4),
-    #      do_plot=True, rerun_proc=True, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=True)
-    #
-    #
-    # main(subject='0717b399', session_ids=range(1, 9),
-    #      do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
-    #
-    # main(subject='6808dfab', session_ids=range(1, 4),
-    #      do_plot=False, rerun_proc=False, combined_anal_channels=('C3', 'C4'), norm_c34_w_cz=False)
-
-    # TESTED:
-
-    # baseline
-    # main(baseline=(-1, -.1), do_plot=True)
-    # main(baseline=(-1, -.1), do_plot=True)
-    # main(baseline=(-1.5, 0), do_plot=True)
-    # main(baseline=(-1.5, -.1), do_plot=True)
-
-    # tfr_mode
-    # main(tfr_mode='cwt', do_plot=True, freqs=np.logspace(np.log(4), np.log(50), num=100, base=np.e))
-
-    # tfr_baseline_mode
-    # main(tfr_baseline_mode='ratio', do_plot=True)
-    # main(tfr_baseline_mode='zscore', do_plot=True)
-    # main(tfr_baseline_mode='zlogratio', do_plot=True)
-
-    # reaction_tmax
-    # main(reaction_tmax=.8, do_plot=True, rerun_proc=False)
-    # main(reaction_tmax=.45, do_plot=True)
-    # main(reaction_tmax=.4, do_plot=True)
+    for subject, sess_ids in zip(subjects, sessions):
+        main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False)
+        # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)
