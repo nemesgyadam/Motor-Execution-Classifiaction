@@ -126,6 +126,11 @@ def filter_bad_epochs(epochs: mne.Epochs, percent_to_keep=90, copy=False, verbos
     return epochs
 
 
+class WTFException(Exception):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+
 def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                        eeg_sfreq=250, gamepad_sfreq=125, bandpass_freq=(0.5, 80), notch_freq=(50, 100),
                        freqs=np.arange(2, 50, 0.2), do_plot=False, reaction_tmax=1.,
@@ -152,6 +157,9 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
 
     eeg = modalities['Unicorn']['time_series'].T[:8, :]
     eeg_t = modalities['Unicorn']['time_stamps']
+
+    if len(eeg) == 0:
+        raise WTFException('how')
 
     events = modalities['exp-marker']['time_series'].flatten()
     events_t = modalities['exp-marker']['time_stamps'].flatten()
@@ -858,9 +866,13 @@ def main(
             fig_output_path = f'{output_path}/figures/{sid:03d}'
 
             # preprocess session
-            sess = preprocess_session(recordings_path, rec_name, subject, sid, exp_cfg_path, eeg_sfreq, gamepad_sfreq,
-                                      bandpass_freq, notch_freq, freqs, do_plot, reaction_tmax, n_jobs, verbose,
-                                      fig_output_path)
+            try:
+                sess = preprocess_session(recordings_path, rec_name, subject, sid, exp_cfg_path, eeg_sfreq, gamepad_sfreq,
+                                          bandpass_freq, notch_freq, freqs, do_plot, reaction_tmax, n_jobs, verbose,
+                                          fig_output_path)
+            except WTFException:
+                print(f'wtf on {subject}/{sid:03d}; skipping..')
+                continue
 
             # create IAF plots
             _, _, iaf = process_eyes_open_closed(sess['filt_raw_eeg'], sess['events'], sess['eeg_info'],
