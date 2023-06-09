@@ -10,7 +10,7 @@ import scipy.signal
 import torch
 import numpy as np
 from braindecode.datasets import create_from_mne_raw, create_from_mne_epochs, create_from_X_y
-from torch.utils.data import DataLoader, Dataset, random_split, Subset
+from torch.utils.data import DataLoader, Dataset, random_split, Subset, ConcatDataset
 from braindecode import EEGClassifier
 from braindecode.models import *
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
@@ -30,6 +30,8 @@ from itertools import combinations
 from typing import Union
 from skimage.transform import resize
 from scipy.signal import resample
+from torch.utils.data.sampler import SubsetRandomSampler
+from typing import List
 
 
 class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task, on_break, on_pull
@@ -108,6 +110,43 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
 
     def __len__(self):
         return len(self.epochs)
+
+    def rnd_split_by_session(self, train_ratio=.8):
+        uniq_session_idx = np.unique(self.session_idx)
+        nvalid_session = int(len(uniq_session_idx) * (1 - train_ratio))
+        nvalid_session = max(1, nvalid_session)
+        ntrain_session = len(uniq_session_idx) - nvalid_session
+
+        rnd_session_idx = np.random.permutation(uniq_session_idx)
+        train_session_idx = rnd_session_idx[:ntrain_session]
+        valid_session_idx = rnd_session_idx[ntrain_session:]
+
+        # get epoch indexes
+        train_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in train_session_idx], axis=0)
+        train_epochs_idx = np.arange(self.epochs.shape[0])[train_epochs_idx]
+        valid_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in valid_session_idx], axis=0)
+        valid_epochs_idx = np.arange(self.epochs.shape[0])[valid_epochs_idx]
+
+        return Subset(self, train_epochs_idx), Subset(self, valid_epochs_idx)
+
+
+def split_multi_subject_by_session(datasets: List[EEGTimeDomainDataset], train_ratio=.8):
+    train_ds, valid_ds = [], []
+    for ds in datasets:
+        tds, vds = ds.rnd_split_by_session(train_ratio)
+        train_ds.append(tds)
+        valid_ds.append(vds)
+
+    return ConcatDataset(train_ds), ConcatDataset(valid_ds)
+
+
+class MultiSubjectEEGTimeDomainDataset:
+
+    def __init__(self, datasets: List[EEGTimeDomainDataset]):
+        self.datasets = datasets
+
+    def __getitem__(self, index) -> T_co:
+        pass
 
 
 class EEGTfrDomainDataset(Dataset):
