@@ -1,4 +1,6 @@
 import os
+import sys
+
 import pyxdf
 import struct
 import numpy as np
@@ -134,7 +136,7 @@ class WTFException(Exception):
 def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                        eeg_sfreq=250, gamepad_sfreq=125, bandpass_freq=(0.5, 80), notch_freq=(50, 100),
                        freqs=np.arange(2, 50, 0.2), do_plot=False, reaction_tmax=1.,
-                       n_jobs=4, verbose=False, fig_output_path='out'):
+                       n_jobs=4, verbose=False, fig_output_path='out', motor_imaginary=False):
     
     print('-' * 50 + f'\nPROCESSING: {subject}/{session:03d}\n' + '-' * 50)
     os.makedirs(fig_output_path, exist_ok=True)
@@ -288,31 +290,41 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     left_success_pull_marker = int(f'{event_dict["L2-on"]}{event_dict["left"]}')
     right_success_pull_marker = int(f'{event_dict["R2-on"]}{event_dict["right"]}')
     lr_success_pull_marker = int(f'2{event_dict["left-right"]}')
-    
-    left_success = mne.event.define_target_events(all_events, event_dict['left'], event_dict['L2-on'],
-                                                  shared_sfreq, tmin=1e-4, tmax=reaction_tmax,
+
+    # for motor imaginary tasks, the gamepad actions are ignored, and all trials succeed by default
+    tmin = -.1 if motor_imaginary else 1e-4
+
+    left_success = mne.event.define_target_events(all_events, event_dict['left'],
+                                                  event_dict['left'] if motor_imaginary else event_dict['L2-on'],
+                                                  shared_sfreq, tmin=tmin, tmax=reaction_tmax,
                                                   new_id=left_success_marker)
-    right_success = mne.event.define_target_events(all_events, event_dict['right'], event_dict['R2-on'],
-                                                   shared_sfreq, tmin=1e-4, tmax=reaction_tmax,
+    right_success = mne.event.define_target_events(all_events, event_dict['right'],
+                                                   event_dict['right'] if motor_imaginary else event_dict['R2-on'],
+                                                   shared_sfreq, tmin=tmin, tmax=reaction_tmax,
                                                    new_id=right_success_marker)
-    lr_success = define_target_events2(all_events, event_dict["left-right"], [event_dict['L2-on'], event_dict['R2-on']],
-                                       shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=lr_success_marker,
+    lr_success = define_target_events2(all_events, event_dict["left-right"],
+                                       [event_dict["left-right"]] if motor_imaginary else [event_dict['L2-on'], event_dict['R2-on']],
+                                       shared_sfreq, tmin=tmin, tmax=reaction_tmax, new_id=lr_success_marker,
                                        occur=True, or_occur=False)
     # when nothing should be pressed, it just becomes a fucking headache (implemented it myself in the end)
     # = mne is straight dogshit
+    # nothing_success is occur=False, so no need to have different behavior for motor imaginary (gamepad is not used)
     nothing_success = define_target_events2(all_events, event_dict["nothing"], [event_dict['L2-on'], event_dict['R2-on']],
                                             shared_sfreq, tmin=1e-4, tmax=exp_cfg['event-duration']['task'][0],
                                             new_id=nothing_success_marker, occur=False, or_occur=False)
 
-    left_success_pull = mne.event.define_target_events(all_events, event_dict['L2-on'], event_dict['left'],
-                                                       shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
-                                                       new_id=left_success_pull_marker)
-    right_success_pull = mne.event.define_target_events(all_events, event_dict['R2-on'], event_dict['right'],
-                                                        shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
-                                                        new_id=right_success_pull_marker)
-    lr_success_pull = mne.event.define_target_events(all_events, event_dict['R2-on'], event_dict['left-right'],
-                                                     shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
-                                                     new_id=lr_success_pull_marker)
+    if not motor_imaginary:
+        left_success_pull = mne.event.define_target_events(all_events, event_dict['L2-on'], event_dict['left'],
+                                                           shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
+                                                           new_id=left_success_pull_marker)
+        right_success_pull = mne.event.define_target_events(all_events, event_dict['R2-on'], event_dict['right'],
+                                                            shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
+                                                            new_id=right_success_pull_marker)
+        lr_success_pull = mne.event.define_target_events(all_events, event_dict['R2-on'], event_dict['left-right'],
+                                                         shared_sfreq, tmin=-reaction_tmax, tmax=1e-4,
+                                                         new_id=lr_success_pull_marker)
+    else:  # motor imaginary
+        left_success_pull = right_success_pull = lr_success_pull = np.empty((0, 3), dtype=all_events.dtype), None
     # TODO anchored to left pull, not the avg of left and right pull
 
     # stats on delay
@@ -329,8 +341,9 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     # do the same for the break event
     break_marker = exp_cfg['events']['break']['marker']
     break_success_marker = int(f'{break_marker}0')
-    break_success = define_target_events2(all_events, break_marker, [event_dict['L2-off'], event_dict['R2-off']],
-                                          shared_sfreq, tmin=1e-4, tmax=reaction_tmax, new_id=break_success_marker,
+    break_success = define_target_events2(all_events, break_marker,
+                                          [break_marker] if motor_imaginary else [event_dict['L2-off'], event_dict['R2-off']],
+                                          shared_sfreq, tmin=tmin, tmax=reaction_tmax, new_id=break_success_marker,
                                           occur=True, or_occur=True)
     
     all_events = np.concatenate([all_events, left_success[0], right_success[0], lr_success[0], nothing_success[0],
@@ -413,30 +426,38 @@ def epoch_on_pull(sess_id, prep_results: dict, exp_cfg_path, freqs, baseline=(No
     pull_event_ids = {task: marker for task, marker in prep_results['success_markers'].items()
                       if task in {'left-pull', 'right-pull', 'left-right-pull'}}
 
-    epochs_on_pull = mne.Epochs(filt_raw_eeg, all_events, event_id=pull_event_ids, baseline=None, verbose=verbose,
-                                tmin=-exp_cfg['event-duration']['baseline'],
-                                tmax=exp_cfg['event-duration']['task'][0] - reaction_tmax)
-    epochs_on_pull.apply_baseline(baseline, verbose=verbose)
+    try:
+        epochs_on_pull = mne.Epochs(filt_raw_eeg, all_events, event_id=pull_event_ids, baseline=None, verbose=verbose,
+                                    tmin=-exp_cfg['event-duration']['baseline'],
+                                    tmax=exp_cfg['event-duration']['task'][0] - reaction_tmax)
+        epochs_on_pull.apply_baseline(baseline, verbose=verbose)
 
-    if filter_percentile is not None:
-        epochs_on_pull = filter_bad_epochs(epochs_on_pull, filter_percentile, copy=False, verbose=verbose)
+        if filter_percentile is not None:
+            epochs_on_pull = filter_bad_epochs(epochs_on_pull, filter_percentile, copy=False, verbose=verbose)
 
-    # tfr: cwt or multitaper; multitaper is better if the signal is not that time-locked
-    tfr_settings = dict(freqs=freqs, n_cycles=n_cycles, return_itc=False, average=False, n_jobs=n_jobs, verbose=verbose)
-    if tfr_mode == 'cwt':
-        tfr_epochs_on_pull = mne.time_frequency.tfr_morlet(epochs_on_pull, output='power', **tfr_settings)
-    elif tfr_mode == 'multitaper':
-        tfr_epochs_on_pull = mne.time_frequency.tfr_multitaper(epochs_on_pull, **tfr_settings)
-    else:
-        raise ValueError('invalid tfr_mode:', tfr_mode)
+        # tfr: cwt or multitaper; multitaper is better if the signal is not that time-locked
+        tfr_settings = dict(freqs=freqs, n_cycles=n_cycles, return_itc=False, average=False, n_jobs=n_jobs, verbose=verbose)
+        if tfr_mode == 'cwt':
+            tfr_epochs_on_pull = mne.time_frequency.tfr_morlet(epochs_on_pull, output='power', **tfr_settings)
+        elif tfr_mode == 'multitaper':
+            tfr_epochs_on_pull = mne.time_frequency.tfr_multitaper(epochs_on_pull, **tfr_settings)
+        else:
+            raise ValueError('invalid tfr_mode:', tfr_mode)
 
-    # apply baseline on tfr
-    tfr_epochs_on_pull = tfr_epochs_on_pull.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
+        # apply baseline on tfr
+        tfr_epochs_on_pull = tfr_epochs_on_pull.apply_baseline(baseline, tfr_baseline_mode, verbose=verbose)
 
-    return dict(epochs_on_pull=epochs_on_pull, tfr_epochs_on_pull=tfr_epochs_on_pull,
-                on_pull_times=tfr_epochs_on_pull.times, pull_event_ids=pull_event_ids, pull_baseline=baseline,
-                on_pull_events=epochs_on_pull.events, on_pull_drop_log=epochs_on_pull.drop_log,
-                on_pull_session_idx=np.repeat(sess_id, len(epochs_on_pull)))
+        return dict(epochs_on_pull=epochs_on_pull, tfr_epochs_on_pull=tfr_epochs_on_pull,
+                    on_pull_times=tfr_epochs_on_pull.times, pull_event_ids=pull_event_ids, pull_baseline=baseline,
+                    on_pull_events=epochs_on_pull.events, on_pull_drop_log=epochs_on_pull.drop_log,
+                    on_pull_session_idx=np.repeat(sess_id, len(epochs_on_pull)))
+
+    except ValueError:  # No matching events found..
+        print('NO ON-PULL EPOCHS REGISTERED', file=sys.stderr)
+        return dict(epochs_on_pull=None, tfr_epochs_on_pull=None,
+                    on_pull_times=None, pull_event_ids=pull_event_ids, pull_baseline=baseline,
+                    on_pull_events=None, on_pull_drop_log=None,
+                    on_pull_session_idx=np.repeat(sess_id, 0))
 
 
 def epoch_on_break(sess_id, prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
@@ -800,6 +821,7 @@ def main(
     filter_percentile=95,  # filter out too large within-epoch, peak-to-peak signal differences (noisy epochs)
     combined_anal_channels=('C3', 'Cz', 'C4'),  # only affects the combined plots, defines the channels to show
     norm_c34_w_cz=False,  # whether to remove the time frequency signal of Cz from C3 and C4, only when plotting
+    is_imaginary=None,
 ):
 
     assert bandpass_freq[0] <= freq_rng[0] and freq_rng[1] <= bandpass_freq[1]
@@ -824,11 +846,11 @@ def main(
         streams_info = {'filt_raw_eeg': {'dtype': 'float32', 'epoch': False, 'get': lambda x: x.get_data()},
 
                         'epochs_on_task': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
-                        'epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
+                        'epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data() if x else x},
                         'epochs_on_break': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.get_data()},
 
                         'tfr_epochs_on_task': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
-                        'tfr_epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
+                        'tfr_epochs_on_pull': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data if x else x},
                         'tfr_epochs_on_break': {'dtype': 'float32', 'epoch': True, 'get': lambda x: x.data},
 
                         'gamepad': {'dtype': 'float16', 'epoch': False, 'get': lambda x: x},
@@ -869,7 +891,7 @@ def main(
             try:
                 sess = preprocess_session(recordings_path, rec_name, subject, sid, exp_cfg_path, eeg_sfreq, gamepad_sfreq,
                                           bandpass_freq, notch_freq, freqs, do_plot, reaction_tmax, n_jobs, verbose,
-                                          fig_output_path)
+                                          fig_output_path, is_imaginary[i] if is_imaginary is not None else False)
             except WTFException:
                 print(f'wtf on {subject}/{sid:03d}; skipping..')
                 continue
@@ -917,8 +939,9 @@ def main(
                 ds_name = f'{name}_{sid}' if not info['epoch'] else name  # separate name/session for non epoched streams
 
                 if info['epoch']:
-                    streams_data[ds_name].resize(streams_data[ds_name].shape[0] + data.shape[0], axis=0)
-                    streams_data[ds_name][-data.shape[0]:] = data
+                    if data is not None and data.size > 0:  # imaginary dataset / epochs_on_pull
+                        streams_data[ds_name].resize(streams_data[ds_name].shape[0] + data.shape[0], axis=0)
+                        streams_data[ds_name][-data.shape[0]:] = data
                 else:  # not epoched stream, create new dataset
                     streams_data.create_dataset(ds_name, dtype=info['dtype'], data=data)
 
@@ -959,10 +982,18 @@ if __name__ == '__main__':
 
     data_path = '../recordings'
     subjects = [os.path.basename(s)[4:] for s in glob(f'{data_path}/sub-*')]  # like ['0717b399', 'a9223e93']
+    subjects = ['0717b399']
     sessions = [[int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/sub-{subj}/ses-*')]
                 for subj in subjects]
 
+    # TODO bence utolso sessionje motor imaginary
+    is_imaginary = np.zeros(len(sessions[0]), dtype=bool)
+    is_imaginary[[-1, -2]] = True
+
+    # sessions[0] = sessions[0][-3:]
+    # is_imaginary = is_imaginary[-3:]
+
     for subject, sess_ids in zip(subjects, sessions):
         main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
-             reaction_tmax=.6)
+             reaction_tmax=.6, is_imaginary=is_imaginary)
         # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)

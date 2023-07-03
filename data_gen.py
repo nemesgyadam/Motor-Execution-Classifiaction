@@ -111,15 +111,16 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
     def __len__(self):
         return len(self.epochs)
 
-    def rnd_split_by_session(self, train_ratio=.8):
-        uniq_session_idx = np.unique(self.session_idx)
-        nvalid_session = int(len(uniq_session_idx) * (1 - train_ratio))
-        nvalid_session = max(1, nvalid_session)
-        ntrain_session = len(uniq_session_idx) - nvalid_session
+    def rnd_split_by_session(self, train_ratio=.8, train_session_idx=None, valid_session_idx=None):
+        if train_session_idx is None or valid_session_idx is None:
+            uniq_session_idx = np.unique(self.session_idx)
+            nvalid_session = int(len(uniq_session_idx) * (1 - train_ratio))
+            nvalid_session = max(1, nvalid_session)
+            ntrain_session = len(uniq_session_idx) - nvalid_session
 
-        rnd_session_idx = np.random.permutation(uniq_session_idx)
-        train_session_idx = rnd_session_idx[:ntrain_session]
-        valid_session_idx = rnd_session_idx[ntrain_session:]
+            rnd_session_idx = np.random.permutation(uniq_session_idx)
+            train_session_idx = rnd_session_idx[:ntrain_session]
+            valid_session_idx = rnd_session_idx[ntrain_session:]
 
         # get epoch indexes
         train_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in train_session_idx], axis=0)

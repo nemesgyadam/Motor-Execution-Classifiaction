@@ -25,6 +25,7 @@ import random
 import wandb
 from pprint import pprint
 from itertools import combinations
+from datetime import datetime
 
 from data_gen import *
 
@@ -98,7 +99,7 @@ def main(**kwargs):
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'nothing': 2},#{'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
@@ -187,21 +188,21 @@ def main(**kwargs):
 
         # train
         classif = BrainDecodeClassification(model, cfg)
-        model_name = f'braindecode_{model.__class__.__name__}'
+        model_name = f'braindecode_{model.__class__.__name__}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
         model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
 
         gather_metrics = GatherMetrics()
         callbacks = [
             ModelCheckpoint(
-                f"models/{model_name}",
+                f'models/{model_name}',
                 model_fname_template,
-                monitor="val_loss",
+                monitor='val_loss',
                 save_top_k=1,
                 save_last=False,
                 verbose=True,
             ),
-            LearningRateMonitor(logging_interval="step"),
-            EarlyStopping("val_loss", patience=12),
+            LearningRateMonitor(logging_interval='step'),
+            EarlyStopping('val_loss', patience=12),
             gather_metrics,
         ]
 
