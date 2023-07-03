@@ -82,7 +82,7 @@ class BrainDecodeClassification(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.cfg['init_lr'])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=3, verbose=True, factor=0.2
+            optimizer, patience=self.cfg['reduce_lr_patience'], verbose=True, factor=0.2
         )
         return {
             "optimizer": optimizer,
@@ -116,6 +116,8 @@ def main(**kwargs):
         n_fold=4,
         # number of sessions to use as validation in k-fold cross-valid - all combinations are computed
         leave_k_out=None,
+        reduce_lr_patience=3,
+        early_stopping_patience=12,
 
         model_cls=ShallowFBCSPNet,  # default model
         # number of samples to include in each window of the decoder - now set to the full recording length
@@ -151,7 +153,10 @@ def main(**kwargs):
     print('split generator:', ds_split_gen)
 
     min_val_losses, max_val_accs = [], []
-    for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):
+    # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
+    split_i = 0
+    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
+    if True:  # TODO !!! rm
         print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
         # init dataloaders
@@ -202,7 +207,7 @@ def main(**kwargs):
                 verbose=True,
             ),
             LearningRateMonitor(logging_interval='step'),
-            EarlyStopping('val_loss', patience=12),
+            EarlyStopping('val_loss', patience=cfg['early_stopping_patience']),
             gather_metrics,
         ]
 

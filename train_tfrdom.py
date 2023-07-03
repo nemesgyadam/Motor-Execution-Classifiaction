@@ -5,6 +5,7 @@ import sys
 import matplotlib
 matplotlib.use('Qt5Agg')  # TODO
 
+from datetime import datetime
 from functools import partial
 import torch
 import numpy as np
@@ -36,7 +37,7 @@ def main(**kwargs):
 
     cfg = dict(
         subject='0717b399',
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_f-2-40-100',
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
@@ -57,6 +58,8 @@ def main(**kwargs):
         loss_fun=NLLLoss,
         n_fold=None,  # number of times to randomly re-split train and valid
         leave_k_out=1,  # number of sessions to use as validation in k-fold cross-valid
+        reduce_lr_patience=3,
+        early_stopping_patience=12,
 
         model_cls=ShallowFBCSPNet,
         # input_window_samples=100,   # TODO set to epoch len now
@@ -82,31 +85,38 @@ def main(**kwargs):
     # manual data loading
     data = EEGTfrDomainDataset(streams_path, meta_path, cfg)
 
-    # TODO RGB spectrograms
+    # RGB spectrograms
     imgs = np.transpose(data.epochs, (0, 2, 3, 1))
-    imgs_norm = (imgs - imgs.min()) / (imgs.max() - imgs.min())
+    normed_imgs = (imgs - imgs.min(axis=0, keepdims=True)) / \
+                  (imgs.max(axis=0, keepdims=True) - imgs.min(axis=0, keepdims=True))
 
-    for ev in np.unique(data.events_cls):
-        plt.figure()
-        m = imgs[data.events_cls == ev].mean(axis=0)
-        plt.imshow(m)
-        plt.title(f'{ev}')
-    plt.show(block=False)
-
-    for i, (img, ev) in enumerate(zip(imgs, data.events_cls)):
-        plt.figure()
-        img = (img - img.min()) / (img.max() - img.min())
-        plt.imshow(img)
-        plt.title(ev)
-        plt.show()
-
+    # # plots
+    # cls_to_event = {v: k for k, v in cfg['events_to_cls'].items()}
+    # _, axes = plt.subplots(2, 2)
+    # axes = axes.reshape(-1)
+    # for ev in np.unique(data.events_cls):
+    #     m = normed_imgs[data.events_cls == ev].mean(axis=0)
+    #     axes[ev].imshow(m)
+    #     axes[ev].set_title(f'normed avg {cls_to_event[ev]}')
+    # plt.tight_layout()
+    # plt.show(block=True)
+    #
+    # for i, (img, ev) in enumerate(zip(imgs, data.events_cls)):
+    #     plt.figure()
+    #     img = (img - img.min()) / (img.max() - img.min())
+    #     plt.imshow(img)
+    #     plt.title(f'normed {cls_to_event[ev]}')
+    #     plt.show()
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
     ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
     print('split generator:', ds_split_gen)
 
     min_val_losses, max_val_accs = [], []
-    for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):
+    # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
+    split_i = 0
+    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 13), valid_session_idx=np.arange(13, 15))
+    if True:  # TODO !!! rm
         print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
         # init dataloaders
@@ -139,7 +149,7 @@ def main(**kwargs):
 
         # train
         classif = BrainDecodeClassification(model, cfg)
-        model_name = f'tfr_braindecode_{model.__class__.__name__}'
+        model_name = f'tfr_braindecode_{model.__class__.__name__}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
         model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
 
         gather_metrics = GatherMetrics()
@@ -204,16 +214,17 @@ if __name__ == '__main__':
     metricz = {}
     fails = []
     for model in models_to_try:
-        try:
+        # try:
+        if True:
             metrics = main(model_cls=model, batch_size=8)
             metricz[model.__name__] = metrics
             print('=' * 80, '\n', '=' * 80)
             print(model.__name__, '|', metrics)
             print('=' * 80, '\n', '=' * 80)
             pprint(metricz)
-        except Exception as e:
-            print(e, file=sys.stderr)
-            fails.append(model.__name__)
+        # except Exception as e:
+        #     print(e, file=sys.stderr)
+        #     fails.append(model.__name__)
 
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]

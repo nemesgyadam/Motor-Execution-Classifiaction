@@ -226,7 +226,6 @@ class EEGTfrDomainDataset(Dataset):
         # plt.plot(epochs[events_cls==0, 0, 1, :].mean(axis=0), '--', label='C3-alpha-left'); plt.plot(epochs[events_cls==1, 1, 1, :].mean(axis=0), '--', label='C4-alpha-right');
         # plt.legend(); plt.show()
 
-
         # by channel (across trials and time) standardization TODO validation normalization leaks into training
         std_over = (0, 2, 3) if cfg['erds_bands'] is None else (0, 2)
         means = epochs.mean(axis=std_over, keepdims=True)
@@ -251,6 +250,25 @@ class EEGTfrDomainDataset(Dataset):
 
     def __len__(self):
         return len(self.epochs)
+
+    def rnd_split_by_session(self, train_ratio=.8, train_session_idx=None, valid_session_idx=None):
+        if train_session_idx is None or valid_session_idx is None:
+            uniq_session_idx = np.unique(self.session_idx)
+            nvalid_session = int(len(uniq_session_idx) * (1 - train_ratio))
+            nvalid_session = max(1, nvalid_session)
+            ntrain_session = len(uniq_session_idx) - nvalid_session
+
+            rnd_session_idx = np.random.permutation(uniq_session_idx)
+            train_session_idx = rnd_session_idx[:ntrain_session]
+            valid_session_idx = rnd_session_idx[ntrain_session:]
+
+        # get epoch indexes
+        train_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in train_session_idx], axis=0)
+        train_epochs_idx = np.arange(self.epochs.shape[0])[train_epochs_idx]
+        valid_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in valid_session_idx], axis=0)
+        valid_epochs_idx = np.arange(self.epochs.shape[0])[valid_epochs_idx]
+
+        return Subset(self, train_epochs_idx), Subset(self, valid_epochs_idx)
 
 
 def rnd_by_epoch_cross_val(data: Dataset, cfg: dict):
