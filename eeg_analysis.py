@@ -995,5 +995,5 @@ if __name__ == '__main__':
 
     for subject, sess_ids in zip(subjects, sessions):
         main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
-             reaction_tmax=.6, is_imaginary=is_imaginary)
+             reaction_tmax=.7, is_imaginary=is_imaginary)  # TODO reaction_tmax=.6
         # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)

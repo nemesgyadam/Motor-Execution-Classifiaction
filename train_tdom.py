@@ -105,7 +105,7 @@ def main(**kwargs):
         crop_t=(-.2, None),  # the part of the epoch to include
         resample=0.5,  # no resample = 1.
 
-        batch_size=8,
+        batch_size=32,
         num_workers=0,
         prefetch_factor=2,
         accumulate_grad_batches=1,
@@ -155,7 +155,7 @@ def main(**kwargs):
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
-    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
+    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 13), valid_session_idx=np.arange(13, 15))  # TODO !!!! 13, 15 valid
     if True:  # TODO !!! rm
         print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
