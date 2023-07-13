@@ -983,8 +983,8 @@ if __name__ == '__main__':
     data_path = '../recordings'
     subjects = [os.path.basename(s)[4:] for s in glob(f'{data_path}/sub-*')]  # like ['0717b399', 'a9223e93']
     subjects = ['0717b399']
-    sessions = [[int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/sub-{subj}/ses-*')]
-                for subj in subjects]
+    sessions = sorted([[int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/sub-{subj}/ses-*')]
+                       for subj in subjects])
 
     # TODO bence utolso sessionje motor imaginary
     is_imaginary = np.zeros(len(sessions[0]), dtype=bool)
