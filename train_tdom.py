@@ -1,4 +1,8 @@
+import glob
 import sys
+import os
+
+os.environ["CUBLAS_WORKSPACE_CONFIG"]=":4096:8"
 
 import mne
 import h5py
@@ -22,7 +26,7 @@ from torch.utils.data.dataset import T_co
 from torchvision.transforms import Normalize, Compose, ToTensor
 import torchmetrics
 import random
-import wandb
+#import wandb
 from pprint import pprint
 from itertools import combinations
 from datetime import datetime
@@ -93,8 +97,10 @@ class BrainDecodeClassification(L.LightningModule):
 
 def main(**kwargs):
 
+    subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100\\')
+
     cfg = dict(
-        subject='0717b399',
+        subjects=['0717b399'],  # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
         # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
 
@@ -103,11 +109,11 @@ def main(**kwargs):
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
-        resample=0.5,  # no resample = 1.
+        resample=1.,  # no resample = 1.  # TODO
 
         batch_size=32,
-        num_workers=0,
-        prefetch_factor=2,
+        num_workers=8,
+        prefetch_factor=4,
         accumulate_grad_batches=1,
         precision=32,  # 16 | 32
         gradient_clip_val=1,
@@ -129,7 +135,7 @@ def main(**kwargs):
         multi_dev_strat=None,
 
         epochs=100,
-        init_lr=1e-3,
+        init_lr=5e-3,
         train_data_ratio=.85,  # ratio of training data, the rest is validation
     )
     cfg.update(kwargs)
@@ -141,12 +147,13 @@ def main(**kwargs):
 
     # wandb.init(project='eeg-motor-execution', config=cfg)
     mne.set_log_level(False)
-
-    streams_path = f'{cfg["data_ver"]}/{cfg["subject"]}/{cfg["subject"]}_streams.h5'
-    meta_path = f'{cfg["data_ver"]}/{cfg["subject"]}/{cfg["subject"]}_meta.pckl'
-
-    # manual data loading
-    data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
+    datasets = []
+    for subject in cfg["subjects"]:
+        streams_path = f'{cfg["data_ver"]}/{subject}/{subject}_streams.h5'
+        meta_path = f'{cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
+        # manual data loading
+        data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
+        datasets.append(data)
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
     ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
@@ -155,7 +162,8 @@ def main(**kwargs):
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
-    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 13), valid_session_idx=np.arange(13, 15))  # TODO !!!! 13, 15 valid
+    #train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
+    train_ds, valid_ds = split_multi_subject_by_session(datasets)
     if True:  # TODO !!! rm
         print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
@@ -214,7 +222,7 @@ def main(**kwargs):
         trainer = L.Trainer(
                 accelerator=cfg["dev"],
                 devices=cfg["ndev"],
-                strategy=cfg["multi_dev_strat"],
+                #strategy=cfg["multi_dev_strat"],
                 max_epochs=cfg["epochs"],
                 default_root_dir=f"models/{model_name}",
                 callbacks=callbacks,
@@ -237,7 +245,7 @@ def main(**kwargs):
 
 
 if __name__ == '__main__':
-    torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(False)
 
     models_to_try = [  # TODO
         ShallowFBCSPNet,
