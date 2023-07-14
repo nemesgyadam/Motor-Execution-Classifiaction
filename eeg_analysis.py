@@ -982,18 +982,14 @@ if __name__ == '__main__':
 
     data_path = '../recordings'
     subjects = [os.path.basename(s)[4:] for s in glob(f'{data_path}/sub-*')]  # like ['0717b399', 'a9223e93']
-    subjects = ['0717b399']
     sessions = [sorted([int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/sub-{subj}/ses-*')])
                 for subj in subjects]
 
-    # TODO bence utolso sessionje motor imaginary
-    is_imaginary = np.zeros(len(sessions[0]), dtype=bool)
-    is_imaginary[[-1, -2]] = True
-
-    # sessions[0] = sessions[0][-3:]
-    # is_imaginary = is_imaginary[-3:]
-
     for subject, sess_ids in zip(subjects, sessions):
+        is_imaginary = np.zeros(len(sess_ids), dtype=bool)
+        if subject == '0717b399':  # has motor imaginary
+            is_imaginary[[-1, -2]] = True
+
         main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
-             reaction_tmax=.7, is_imaginary=is_imaginary)  # TODO reaction_tmax=.6
+             reaction_tmax=.6, is_imaginary=is_imaginary)
         # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)
