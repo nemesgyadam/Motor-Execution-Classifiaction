@@ -83,6 +83,13 @@ class BrainDecodeClassification(L.LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         self.log("val_acc", acc, prog_bar=True)
 
+    def infer(self, x):
+        with torch.no_grad():
+            yy = self.model(x)
+            if len(yy.shape) == 3:
+                yy = yy.mean(dim=-1)
+            return yy.item()
+
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.cfg['init_lr'])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -93,6 +100,16 @@ class BrainDecodeClassification(L.LightningModule):
             "lr_scheduler": scheduler,
             "monitor": "val_loss",
         }
+
+
+def load_model(path_to_dir):
+    with open(f'{path_to_dir}/cfg.pkl', 'rb') as f:
+        tmp_ = pickle.load(f)
+    cfg, model_params = tmp_['cfg'], tmp_['model_params']
+
+    model = cfg['model_cls'](**model_params[cfg['model_cls'].__name__])
+    classif = BrainDecodeClassification(model, cfg)
+    return classif
 
 
 def main(**kwargs):
@@ -203,6 +220,10 @@ def main(**kwargs):
         classif = BrainDecodeClassification(model, cfg)
         model_name = f'braindecode_{model.__class__.__name__}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
         model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
+
+        os.makedirs(f'models/{model_name}', exist_ok=True)
+        with open(f'models/{model_name}/cfg.pkl', 'wb') as f:
+            pickle.dump({'cfg': cfg, 'model_params': model_params}, f)
 
         gather_metrics = GatherMetrics()
         callbacks = [
