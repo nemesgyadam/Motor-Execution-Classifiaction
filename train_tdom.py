@@ -88,7 +88,7 @@ class BrainDecodeClassification(L.LightningModule):
             yy = self.model(x)
             if len(yy.shape) == 3:
                 yy = yy.mean(dim=-1)
-            return yy.item()
+            return yy.cpu().numpy()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.cfg['init_lr'])
@@ -102,14 +102,16 @@ class BrainDecodeClassification(L.LightningModule):
         }
 
 
-def load_model(path_to_dir):
+def load_model(path_to_dir, device='cuda'):
+    ckpt_fname = sorted(glob.glob(f'{path_to_dir}/*.ckpt'))[-1]
+
     with open(f'{path_to_dir}/cfg.pkl', 'rb') as f:
         tmp_ = pickle.load(f)
     cfg, model_params = tmp_['cfg'], tmp_['model_params']
 
     model = cfg['model_cls'](**model_params[cfg['model_cls'].__name__])
-    classif = BrainDecodeClassification(model, cfg)
-    return classif
+    classif = BrainDecodeClassification.load_from_checkpoint(ckpt_fname, map_location=device, model=model, cfg=cfg)
+    return classif, cfg
 
 
 def main(**kwargs):

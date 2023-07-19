@@ -88,12 +88,17 @@ if __name__ == "__main__":
     sfreq = 250
     FrameLength = sfreq // 5
     TestsignaleEnabled = False
-    eeg_hist_len = 880
-    model_name = 'braindecode_ShallowFBCSPNet_2023-07-18_15-49-57'
+    eeg_hist_len = 550
+    model_name = 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'
+    dev = 'cuda'
+    pred_threshold = .9
+    # TODO take order of directions from cfg and use it
 
     numberOfAcquiredChannels = 17
     receiveBufferBufferLength = 0
     receiveBuffer = None
+
+    eeg_ch_names = ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']  # unicorn
 
     try:
         deviceList = UnicornPy.GetAvailableDevices(True)
@@ -126,12 +131,17 @@ if __name__ == "__main__":
         #     keyboard_listener.start()
 
     # load prediction model
-    ckpt_fname = os.path.basename(sorted(glob.glob(f'../models/{model_name}/*.ckpt'))[-1])
-    model = load_model(f'../models/{model_name}/{ckpt_fname}').to('cuda')
+    # ckpt_fname = os.path.basename(sorted(glob.glob(f'../models/{model_name}/*.ckpt'))[-1])
+    model, cfg = load_model(f'../models/{model_name}', dev)
+    chans_i = [eeg_ch_names.index(chan) for chan in cfg['eeg_chans']]
+
+    cls_to_events = {v: k for k, v in cfg['events_to_cls']}
+    events_to_msgs = {'left': 'left', 'right': 'right', 'left-right': 'up', 'nothing': 'stay'}
 
     # setup buffer
     eeg_buffer = CircBuff(eeg_hist_len, numberOfAcquiredChannels)
-    device.StartAcquisition(TestsignaleEnabled)
+    if device is not None:
+        device.StartAcquisition(TestsignaleEnabled)
 
     try:
         while True:
@@ -140,19 +150,26 @@ if __name__ == "__main__":
                 data = np.frombuffer(receiveBuffer, dtype=np.float32, count=numberOfAcquiredChannels * FrameLength)
                 data = np.reshape(data, (FrameLength, numberOfAcquiredChannels))
             else:
-                data = np.random.random((numberOfAcquiredChannels, FrameLength))
+                data = np.random.random((FrameLength, numberOfAcquiredChannels))
                 time.sleep(FrameLength / sfreq)
             eeg_buffer.add(data)
 
             print(eeg_buffer.count)
 
             if eeg_buffer.count == eeg_buffer.size:
-                x = torch.as_tensor(eeg_buffer.get(), device='cuda')[None, ...]
-                y = model.infer(x)
-                print('pred:', y)
+                x = torch.as_tensor(eeg_buffer.get(), device=dev)[None, ..., chans_i]
+                y = model.infer(x.permute(0, 2, 1))[0]
+
+                y = np.e ** y  # log prob to prob
+                highest = np.argmax(y)
+                if y[highest] > pred_threshold:
+                    msg = events_to_msgs[cls_to_events[highest]]
+                    sender.send_msg(msg)
+                    print(f'sent: {msg}')  # TODO TEST
 
     finally:
-        device.StopAcquisition()
+        if device is not None:
+            device.StopAcquisition()
         del receiveBuffer
         del device
         print("Data acquisition stopped.")
