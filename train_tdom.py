@@ -122,7 +122,7 @@ def main(**kwargs):
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        events_to_cls={'left': 0, 'right': 1, 'nothing': 3},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
@@ -179,8 +179,8 @@ def main(**kwargs):
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
-    #train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
-    train_ds, valid_ds = split_multi_subject_by_session(datasets)
+    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
+    # train_ds, valid_ds = split_multi_subject_by_session(datasets)
     if True:  # TODO !!! rm
         print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
