@@ -124,7 +124,7 @@ def main(**kwargs):
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'nothing': 3},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        events_to_cls={'left': 0, 'right': 1, 'nothing': 2},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include

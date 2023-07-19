@@ -270,7 +270,20 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     # stim_raw = mne.io.RawArray(np.zeros((1, len(raw.times))), stim_info)
     # raw.add_channels([stim_raw], force_update_info=True)
     # raw.add_events(all_events, stim_channel='STI')
-    
+
+    # h = mne.filter.create_filter(
+    #     raw.get_data(),
+    #     eeg_sfreq,
+    #     l_freq=bandpass_freq[0],
+    #     h_freq=bandpass_freq[1],
+    #     l_trans_bandwidth='auto', h_trans_bandwidth=5,
+    #     filter_length='auto', phase='zero', fir_window='hamming',
+    #     fir_design="firwin",
+    #     verbose=True,
+    # )
+    # tofilt=np.pad(raw.get_data()[0], (len(h)*1, len(h)*1), mode='edge')
+    # x_v13 = np.convolve(np.convolve(h, tofilt)[::-1], h)[::-1][len(h) - 1 + len(h) : -len(h) - 1 - len(h)]
+
     # filter and run tfr on the whole recording (if possible)
     filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(*bandpass_freq, h_trans_bandwidth=5, n_jobs=n_jobs, verbose=verbose) \
         .notch_filter(notch_freq, trans_bandwidth=1, n_jobs=n_jobs, verbose=verbose)
@@ -991,5 +1004,5 @@ if __name__ == '__main__':
             is_imaginary[[-1, -2]] = True
 
         main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
-             reaction_tmax=.6, is_imaginary=is_imaginary)
+             reaction_tmax=.7, is_imaginary=is_imaginary)  # TODO reaction_tmax=.6
         # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)
