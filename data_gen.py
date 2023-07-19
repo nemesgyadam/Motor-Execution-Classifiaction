@@ -36,6 +36,8 @@ from typing import List
 
 class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task, on_break, on_pull
 
+    # TODO !!!!!!!!!!!!!!!!!!!!!!!!! USE TDomPrepper INSTEAD, SO LIVE AND TRAINING DATA PREPROCESSING IS THE SAME FOR SURE
+
     def __init__(self, streams_path, meta_path, cfg, epoch_type='task'):
         streams_data = h5py.File(streams_path, 'r')
 
@@ -93,7 +95,7 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
             epochs, times = resample(epochs, int(cfg['resample'] * epochs.shape[-1]), t=times, axis=-1)
             self.sfreq *= cfg['resample']
 
-        # standardize by epoch
+        # standardize (per subject, per channel)  # TODO try across channel and across (training) subject
         means = epochs.mean(axis=-1, keepdims=True)
         stds = epochs.std(axis=-1, keepdims=True)
         self.epochs = (epochs - means) / stds

@@ -19,6 +19,7 @@ matplotlib.use('Qt5Agg')
 
 from matplotlib.colors import TwoSlopeNorm
 from matplotlib.pyplot import cm
+from common import CircBuff
 
 
 def define_target_events2(events, reference_id, target_ids, sfreq, tmin, tmax, new_id=None, fill_na=None,
@@ -131,6 +132,87 @@ def filter_bad_epochs(epochs: mne.Epochs, percent_to_keep=90, copy=False, verbos
 class WTFException(Exception):
     def __init__(self, *args):
         super().__init__(*args)
+
+
+class TDomPrepper:
+    def __init__(self, epoch_len: int, sfreq: int, ch_names: list, bandpass_freq=(.5, 80), notch_freq=(50, 100),
+                 common=np.mean, tmin_max=(-1.5, 2), crop_t=(-.2, None), baseline=(-1., -.05), filter_percentile=None):
+        self.sfreq = sfreq
+        self.ch_names = ch_names
+        self.bandpass_freq = bandpass_freq
+        self.notch_freq = notch_freq
+        self.common = common
+        self.tmin_max = tmin_max
+        self.baseline = baseline
+        self.filter_percentile = filter_percentile
+
+        crop_def = (0, np.inf)
+        crop_start = 0 if crop_t[0] is None else int((tmin_max[0] - crop_t[0]) * sfreq)
+        crop_end = epoch_len if crop_t[1] is None else int(np.abs(tmin_max[0]) * sfreq) + int(crop_t[1] * sfreq)
+        self.crop_i = (crop_start, crop_end)
+
+        self.eeg_info = mne.create_info(ch_types='eeg', ch_names=ch_names, sfreq=sfreq)
+        self.std_1020 = mne.channels.make_standard_montage('standard_1020')
+        self.epoch_event = np.array([[sfreq * np.abs(tmin_max[0]), 0, 420]], dtype=np.int32)
+        self.event_id = {'whatever': 420}
+
+        # filtering
+        self.filter = mne.filter.create_filter(
+            np.zeros((len(ch_names), epoch_len)), sfreq,
+            l_freq=bandpass_freq[0], h_freq=bandpass_freq[1],
+            l_trans_bandwidth='auto', h_trans_bandwidth=5,
+            filter_length='auto', phase='zero', fir_window='hamming',
+            fir_design="firwin")
+
+        # tracked variables
+        self.epoch_peak2peaks = CircBuff(1000, ordered=False)
+        self.z_means = CircBuff(1000, len(ch_names), ordered=False)
+        self.z_vars = CircBuff(1000, len(ch_names), ordered=False)
+
+    def __call__(self, eeg: np.ndarray):  # channel x time
+        if self.common:
+            eeg -= self.common(eeg, axis=0)
+
+        # fast-filter
+        to_filt = np.pad(eeg, ((0, 0), (len(self.filter) * 1, len(self.filter) * 1)), mode='edge')
+        filt_fun = lambda x: np.convolve(np.convolve(self.filter, x)[::-1], self.filter)[::-1][len(self.filter) - 1 + len(self.filter): -len(self.filter) - 1 - len(self.filter)]
+        filt_eeg = np.apply_along_axis(filt_fun, axis=1, arr=to_filt)  # TODO test if same with filt_raw_eeg below (w/o notch)
+
+        raw = mne.io.RawArray(eeg, self.eeg_info)
+        raw.set_montage(self.std_1020)
+
+        # filter
+        filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(*self.bandpass_freq, h_trans_bandwidth=5, n_jobs=1) \
+            .notch_filter(self.notch_freq, trans_bandwidth=1, n_jobs=1)  # TODO create filter ahead
+
+        # epoching
+        epoch = mne.Epochs(filt_raw_eeg, self.epoch_event, event_id=self.event_id, baseline=None,
+                           tmin=-self.baseline[0], tmax=None)
+        epoch.apply_baseline(self.baseline)
+        epoch = epoch.get_data()[0]
+
+        if self.filter_percentile:
+            peak2peak = np.max(np.max(epoch, axis=-1) - np.min(epoch, axis=-1))
+            self.epoch_peak2peaks.add(peak2peak)
+            perc = np.percentile(self.epoch_peak2peaks.get(), self.filter_percentile)
+
+            if peak2peak > perc:
+                epoch = None
+
+        # TODO option to resample
+
+        # crop & standardize
+        if epoch:
+            epoch = epoch[:, self.crop_i[0]:self.crop_i[1]]  # TODO test
+
+            self.z_means.add(epoch.mean(axis=-1))
+            self.z_vars.add(epoch.var(axis=-1))
+
+            mean = self.z_means.get().mean(axis=0, keepdims=True)
+            var = self.z_vars.get().mean(axis=0, keepdims=True)
+            epoch = (epoch - mean) / np.sqrt(var)
+
+        return epoch
 
 
 def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,

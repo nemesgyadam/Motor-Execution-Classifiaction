@@ -11,6 +11,8 @@ from train_tdom import load_model
 import socket
 import sys
 from pynput import keyboard
+from common import CircBuff
+from eeg_analysis import TDomPrepper
 
 try:
     import UnicornPy
@@ -54,45 +56,28 @@ class KeyListener:
             return False
 
 
-class CircBuff:
-    def __init__(self, size, dim, dtype=np.float32) -> None:
-        self.size = size
-        self.dim = dim
-        self.buffer = np.zeros((size, dim), dtype=dtype)
-        self.tail = self.count = 0
-
-    def add(self, data: np.ndarray):
-        dsize = data.shape[0]
-
-        start = self.tail
-        end = (self.tail + dsize) % self.size
-        if start < end:
-            self.buffer[start:end] = data
-        else:
-            self.buffer[start:] = data[:self.size - start]
-            self.buffer[:end] = data[self.size - start:]
-
-        self.count = min(self.size, self.count + dsize)
-        self.tail = end
-
-    def get(self):
-        if self.count < self.size:
-            return self.buffer[:self.count]
-        return np.concatenate([self.buffer[self.tail:], self.buffer[:self.tail]])
-
-
 if __name__ == "__main__":
 
     # connect to unicorn
     deviceID = 0
     sfreq = 250
-    FrameLength = sfreq // 5
+    FrameLength = sfreq // 2
     TestsignaleEnabled = False
-    eeg_hist_len = 550
-    model_name = 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'
+    model_name = 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'  # 'braindecode_EEGResNet_2023-07-19_14-04-36'  # 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'
     dev = 'cuda'
-    pred_threshold = .9
-    # TODO take order of directions from cfg and use it
+    pred_threshold = .7
+
+    eeg_hist_len = 876  # take this from the dataset epoch length
+    baseline = (-1., -.05)  # dataset property
+    bandpass_freq = (.5, 80)  # dataset property
+    notch_freq = (50, 100)  # dataset property
+    filter_percentile = 95  # dataset property
+    tmin_max = (-.5, 2.)  # epoch specific, check eeg_analysis or the experiment config
+    crop_t = (-.2, None)  # should be same as in training script
+
+    # TODO keverd bele open meg closed eye recordingokat trainingsetbe mint nothing
+
+    # TODO preprocessing
 
     numberOfAcquiredChannels = 17
     receiveBufferBufferLength = 0
@@ -127,16 +112,22 @@ if __name__ == "__main__":
 
     # Start the key listener
     # if device is None:
-        # with keyboard.Listener(on_press=listener.on_press, on_release=listener.on_release) as keyboard_listener:
-        #     keyboard_listener.start()
+    #     with keyboard.Listener(on_press=listener.on_press, on_release=listener.on_release) as keyboard_listener:
+    #         print('use keyboard')
+    #         keyboard_listener.join()
 
     # load prediction model
     # ckpt_fname = os.path.basename(sorted(glob.glob(f'../models/{model_name}/*.ckpt'))[-1])
     model, cfg = load_model(f'../models/{model_name}', dev)
     chans_i = [eeg_ch_names.index(chan) for chan in cfg['eeg_chans']]
 
-    cls_to_events = {v: k for k, v in cfg['events_to_cls']}
+    cls_to_events = {v: k for k, v in cfg['events_to_cls'].items()}
     events_to_msgs = {'left': 'left', 'right': 'right', 'left-right': 'up', 'nothing': 'stay'}
+
+    # setup epoch preprocessing
+    prep = TDomPrepper(eeg_hist_len, sfreq, cfg['eeg_chans'], bandpass_freq, notch_freq, common=np.mean,
+                       tmin_max=tmin_max, crop_t=crop_t, baseline=baseline, filter_percentile=filter_percentile)
+    # TODO !!!!!!!!!!!!!!!! TEST IS THIS IN ACTION
 
     # setup buffer
     eeg_buffer = CircBuff(eeg_hist_len, numberOfAcquiredChannels)
@@ -154,18 +145,21 @@ if __name__ == "__main__":
                 time.sleep(FrameLength / sfreq)
             eeg_buffer.add(data)
 
-            print(eeg_buffer.count)
-
             if eeg_buffer.count == eeg_buffer.size:
-                x = torch.as_tensor(eeg_buffer.get(), device=dev)[None, ..., chans_i]
+                eeg = eeg_buffer.get()[..., chans_i]
+
+                x = torch.as_tensor(eeg, device=dev)[None, ...]
                 y = model.infer(x.permute(0, 2, 1))[0]
 
                 y = np.e ** y  # log prob to prob
                 highest = np.argmax(y)
+                # print(y)
                 if y[highest] > pred_threshold:
                     msg = events_to_msgs[cls_to_events[highest]]
                     sender.send_msg(msg)
-                    print(f'sent: {msg}')  # TODO TEST
+                    print(f'{y}; sent: {msg}')
+            else:
+                print(eeg_buffer.count)
 
     finally:
         if device is not None:
