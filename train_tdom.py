@@ -30,6 +30,7 @@ import random
 from pprint import pprint
 from itertools import combinations
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 from data_gen import *
 

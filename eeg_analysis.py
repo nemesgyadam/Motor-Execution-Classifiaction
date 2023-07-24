@@ -493,7 +493,8 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                                  'break': break_success_marker, 'left-pull': left_success_pull_marker,
                                  'right-pull': right_success_pull_marker, 'left-right-pull': lr_success_pull_marker},
                 filt_raw_eeg=filt_raw_eeg, gamepad=gamepad, events=all_events, event_dict=event_dict,
-                eeg_info=eeg_info, freqs=freqs, eeg_ch_names=eeg_ch_names)
+                eeg_info=eeg_info, freqs=freqs, eeg_ch_names=eeg_ch_names,
+                event_session_idx=np.repeat(session, all_events.shape[0]))
 
 
 def epoch_on_task(sess_id: int, prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
@@ -979,6 +980,7 @@ def main(
                         'on_pull_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_break_events': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
 
+                        'event_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_task_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_pull_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x},
                         'on_break_session_idx': {'dtype': 'int32', 'epoch': True, 'get': lambda x: x}}  # i know, it got out of hand
@@ -1113,4 +1115,6 @@ if __name__ == '__main__':
 
         main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
              reaction_tmax=.7, is_imaginary=is_imaginary)  # TODO reaction_tmax=.6
+
+        break  # TODO rm
         # main(subject=subject, session_ids=rng, rerun_proc=False, norm_c34_w_cz=False)

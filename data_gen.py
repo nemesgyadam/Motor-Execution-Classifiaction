@@ -27,7 +27,7 @@ import random
 import wandb
 from pprint import pprint
 from itertools import combinations
-from typing import Union
+from typing import Union, Iterator
 from skimage.transform import resize
 from scipy.signal import resample
 from torch.utils.data.sampler import SubsetRandomSampler
@@ -141,26 +141,93 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
 
 
 class MomentaryEEGTimeDomainDataset(IterableDataset):
-    def __init__(self, streams_path, meta_path, cfg, epoch_type='task'):
+
+    def __init__(self, streams_path, meta_path, cfg, epoch_len,
+                 ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.85):
         super().__init__()
+        self.epoch_len = epoch_len
+        # if not None, defines the portion of the gamepad signal to be >.5, for that gamepad btn to be classified as 1
+        self.ret_likeliest_gamepad = ret_likeliest_gamepad  # None | (0, 1]
+        self.max_samples = max_samples
+        self.is_trial_chance = is_trial_chance
         # filt eeg, zscore -> rnd slice -> [TDomPrepper(NOTHING)] -> train
 
         streams_data = h5py.File(streams_path, 'r')
         with open(meta_path, 'rb') as f:
             meta_data = pickle.load(f)
         eeg_info = meta_data['eeg_info']
+        self.session_ids = meta_data['session_ids']
+
+        # get time indices for each session of valid ranges from where to slice
+        # open-eye (101-201), from the first until the last "baseline" event (110)
+        events = np.asarray(streams_data['events'])
+        event_session_idx = np.asarray(streams_data['event_session_idx'])
+        self.open_eye_starts, self.open_eye_ends = {}, {}
+        self.trial_starts, self.trial_ends = {}, {}
+
+        for sess in self.session_ids:
+            sess_events = events[event_session_idx == sess]
+            open_eye_start_i = np.where(sess_events[:, 2] == 101)[0][0]
+            open_eye_end_i = np.where(sess_events[:, 2] == 201)[0][0]
+            self.open_eye_starts[sess] = sess_events[open_eye_start_i, 0]
+            self.open_eye_ends[sess] = sess_events[open_eye_end_i, 0]
+
+            trials_start_i = np.where(sess_events[:, 2] == 110)[0][0]
+            trials_end_i = np.where(sess_events[:, 2] == 110)[0][-1]
+            self.trial_starts[sess] = trials_start_i
+            self.trial_ends[sess] = trials_end_i
 
         # pick channels
-        relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
+        self.relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
 
-        # TODO get means, stds
+        # get means, stds, for each session & channel
+        self.z_means = {}  # np.zeros((len(meta_data['session_ids']), len(relevant_chans_i)))
+        self.z_stds = {}  # np.zeros((len(meta_data['session_ids']), len(relevant_chans_i)))
+        for sess_i, sess in enumerate(self.session_ids):
+            self.z_means[sess] = np.mean(streams_data[f'filt_raw_eeg_{sess}'], axis=1, keepdims=True)
+            self.z_stds[sess] = np.std(streams_data[f'filt_raw_eeg_{sess}'], axis=1, keepdims=True)
+
+        self.streams_data = streams_data
 
         # prep = TDomPrepper(epochs.shape[-1], eeg_info['sfreq'], cfg['eeg_chans'], meta_data['bandpass_freq'],
         #                    (50, 100), np.mean, meta_data['on_task_times'][[0, -1]], cfg['crop_t'],
         #                    meta_data['task_baseline'], meta_data['filter_percentile'])
 
     def __iter__(self):
-        pass  # TODO
+        # rnd session, rnd open-eye/trial, rnd slice, get corresponding eeg and gamepad
+        for _ in range(self.max_samples):
+            sess = np.random.choice(self.session_ids)
+            is_trial = np.random.random() < self.is_trial_chance
+            start_interval = (self.trial_starts[sess], self.trial_ends[sess] - self.epoch_len) if is_trial else \
+                (self.open_eye_starts[sess], self.open_eye_ends[sess] - self.epoch_len)
+            start_i = np.random.randint(*start_interval)
+            end_i = start_i + self.epoch_len
+
+            eeg = np.asarray(self.streams_data[f'filt_raw_eeg_{sess}'][self.relevant_chans_i, start_i:end_i])
+            gamepad = np.asarray(self.streams_data[f'gamepad_{sess}'][[4, 5], start_i:end_i])  # L2, R2
+            if self.ret_likeliest_gamepad is not None:
+                gamepad = (np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad).astype(np.float32)
+
+            yield eeg, gamepad
+
+    def __getitem__(self, index) -> T_co:
+        raise NotImplementedError()
+
+
+class CombinedIterableDataset(IterableDataset):
+
+    def __init__(self, datasets: List[MomentaryEEGTimeDomainDataset]):
+        self.datasets = datasets
+        self.combined_len = sum([d.max_samples for d in datasets])
+
+    def __iter__(self) -> Iterator[T_co]:
+        iters = [iter(d) for d in self.datasets]
+        for _ in range(self.combined_len // len(self.datasets)):
+            for it in iters:  # TODO kinda forces all datasets to have the same length?
+                yield next(it)
+
+    def __getitem__(self, index) -> T_co:
+        raise NotImplementedError()
 
 
 def split_multi_subject_by_session(datasets: List[EEGTimeDomainDataset], train_ratio=.8):
