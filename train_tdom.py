@@ -172,7 +172,8 @@ def main(**kwargs):
         streams_path = f'{cfg["data_ver"]}/{subject}/{subject}_streams.h5'
         meta_path = f'{cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
         # manual data loading
-        data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
+        # data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
+        data = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, epoch_len=550, ret_likeliest_gamepad=.3)  # TODO
         datasets.append(data)
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
@@ -182,6 +183,7 @@ def main(**kwargs):
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
+    # TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! write it in data_gen.py/MomentaryEEGTimeDomainDataset that it can take a slice that defines the sessions it can use...
     train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
     # train_ds, valid_ds = split_multi_subject_by_session(datasets)
     if True:  # TODO !!! rm
@@ -195,7 +197,8 @@ def main(**kwargs):
         valid_dl = DataLoader(valid_ds, cfg['batch_size'], shuffle=False, **dl_params)
 
         # init model
-        n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
+        # n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
+        n_classes = 2  # TODO
 
         # each model has its own parameter set, braindecode is fucked up, this per model parametrization is necessary
         # https://braindecode.org/stable/api.html#models
