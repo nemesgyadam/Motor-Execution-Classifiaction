@@ -33,6 +33,8 @@ from scipy.signal import resample
 from torch.utils.data.sampler import SubsetRandomSampler
 from typing import List
 
+from eeg_analysis import TDomPrepper
+
 
 class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task, on_break, on_pull
 
@@ -66,6 +68,11 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
         # pick channels
         relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
         epochs = epochs[:, relevant_chans_i]
+
+        # TODO can't really test end-2-end
+        # prep = TDomPrepper(epochs.shape[-1], eeg_info['sfreq'], cfg['eeg_chans'], meta_data['bandpass_freq'],
+        #                    (50, 100), np.mean, meta_data['on_task_times'][[0, -1]], cfg['crop_t'],
+        #                    meta_data['task_baseline'], meta_data['filter_percentile'])
 
         # load as X, y into braindecode
         # mapper = np.vectorize(lambda x: event_id_to_cls[x])
