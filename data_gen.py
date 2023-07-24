@@ -10,7 +10,7 @@ import scipy.signal
 import torch
 import numpy as np
 from braindecode.datasets import create_from_mne_raw, create_from_mne_epochs, create_from_X_y
-from torch.utils.data import DataLoader, Dataset, random_split, Subset, ConcatDataset
+from torch.utils.data import DataLoader, Dataset, random_split, Subset, ConcatDataset, IterableDataset
 from braindecode import EEGClassifier
 from braindecode.models import *
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
@@ -138,6 +138,29 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
         valid_epochs_idx = np.arange(self.epochs.shape[0])[valid_epochs_idx]
 
         return Subset(self, train_epochs_idx), Subset(self, valid_epochs_idx)
+
+
+class MomentaryEEGTimeDomainDataset(IterableDataset):
+    def __init__(self, streams_path, meta_path, cfg, epoch_type='task'):
+        super().__init__()
+        # filt eeg, zscore -> rnd slice -> [TDomPrepper(NOTHING)] -> train
+
+        streams_data = h5py.File(streams_path, 'r')
+        with open(meta_path, 'rb') as f:
+            meta_data = pickle.load(f)
+        eeg_info = meta_data['eeg_info']
+
+        # pick channels
+        relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
+
+        # TODO get means, stds
+
+        # prep = TDomPrepper(epochs.shape[-1], eeg_info['sfreq'], cfg['eeg_chans'], meta_data['bandpass_freq'],
+        #                    (50, 100), np.mean, meta_data['on_task_times'][[0, -1]], cfg['crop_t'],
+        #                    meta_data['task_baseline'], meta_data['filter_percentile'])
+
+    def __iter__(self):
+        pass  # TODO
 
 
 def split_multi_subject_by_session(datasets: List[EEGTimeDomainDataset], train_ratio=.8):

@@ -135,8 +135,9 @@ class WTFException(Exception):
 
 
 class TDomPrepper:
-    def __init__(self, rec_len: int, epoch_len: int, crop_len: int, sfreq: int, ch_names: list, bandpass_freq=(.5, 80), notch_freq=(50, 100),
-                 common=np.mean, tmin_max=(-1.5, 2), crop_t=(-.2, None), baseline=(-1., -.05), filter_percentile=None):
+    def __init__(self, rec_len: int, epoch_len: int, crop_len: int, sfreq: int, ch_names: list, bandpass_freq=(.5, 80),
+                 notch_freq=(50, 100), common=np.mean, tmin_max=(-1.5, 2), crop_t=(-.2, None), baseline=(-1., -.05),
+                 filter_percentile=None, norm_fun=None):
         self.sfreq = sfreq
         self.ch_names = ch_names
         self.bandpass_freq = bandpass_freq
@@ -146,6 +147,7 @@ class TDomPrepper:
         self.baseline = baseline
         self.filter_percentile = filter_percentile
         self.crop_len = crop_len
+        self.norm_fun = norm_fun
 
         crop_start = 0 if crop_t[0] is None else int(np.abs((tmin_max[0] - crop_t[0])) * sfreq)
         crop_end = epoch_len if crop_t[1] is None else int(np.abs(tmin_max[0]) * sfreq) + int(crop_t[1] * sfreq)
@@ -158,41 +160,51 @@ class TDomPrepper:
         self.event_id = {'whatever': 420}
 
         # filtering
-        self.filter = mne.filter.create_filter(
-            np.zeros((len(ch_names), epoch_len)), sfreq,
-            l_freq=bandpass_freq[0], h_freq=bandpass_freq[1],
-            l_trans_bandwidth='auto', h_trans_bandwidth=5,
-            filter_length='auto', phase='zero', fir_window='hamming',
-            fir_design="firwin")
-        self.filt_fun = lambda x: np.convolve(np.convolve(self.filter, x)[::-1], self.filter)[::-1] \
-            [len(self.filter) - 1 + len(self.filter): -len(self.filter) - 1 - len(self.filter)]
+        self.filt_fun, self.filter = None, None
+        if bandpass_freq is not None:
+            self.filter = mne.filter.create_filter(
+                np.zeros((len(ch_names), epoch_len)), sfreq,
+                l_freq=bandpass_freq[0], h_freq=bandpass_freq[1],
+                l_trans_bandwidth='auto', h_trans_bandwidth=5,
+                filter_length='auto', phase='zero', fir_window='hamming',
+                fir_design="firwin")
+            self.filt_fun = lambda x: np.convolve(np.convolve(self.filter, x)[::-1], self.filter)[::-1] \
+                [len(self.filter) - 1 + len(self.filter): -len(self.filter) - 1 - len(self.filter)]
 
         # tracked variables
         self.epoch_peak2peaks = CircBuff(1000, ordered=False)
-        self.z_means = CircBuff(1000, len(ch_names), ordered=False)
-        self.z_vars = CircBuff(1000, len(ch_names), ordered=False)
+        self.z_means = self.z_vars = None
+        if norm_fun is None:
+            self.z_means = CircBuff(1000, len(ch_names), ordered=False)
+            self.z_vars = CircBuff(1000, len(ch_names), ordered=False)
 
     def __call__(self, eeg: np.ndarray):  # channel x time
         if self.common:
             eeg -= self.common(eeg, axis=0)
 
         # fast-filter
-        to_filt = np.pad(eeg, ((0, 0), (len(self.filter) * 1, len(self.filter) * 1)), mode='edge')
-        # filt_eeg = np.apply_along_axis(self.filt_fun, axis=1, arr=to_filt)  # TODO test if same with filt_raw_eeg below (w/o notch)
-
-        raw = mne.io.RawArray(eeg, self.eeg_info, verbose=False)
-        raw.set_montage(self.std_1020, verbose=False)
+        # if self.filter is not None:
+        #     to_filt = np.pad(eeg, ((0, 0), (len(self.filter) * 1, len(self.filter) * 1)), mode='edge')
+        #     filt_eeg = np.apply_along_axis(self.filt_fun, axis=1, arr=to_filt)  # TODO test if same with filt_raw_eeg below (w/o notch)
 
         # filter
-        # mne.io.Raw().pick_types()
-        filt_raw_eeg = raw.copy().pick_types(eeg=True, verbose=False).filter(*self.bandpass_freq, h_trans_bandwidth=5, n_jobs=1, verbose=False) \
-            .notch_filter(self.notch_freq, trans_bandwidth=1, n_jobs=1, verbose=False)  # TODO test precomp filter (above)
+        if self.bandpass_freq is not None and self.notch_freq is not None:
+            raw = mne.io.RawArray(eeg, self.eeg_info, verbose=False)
+            raw.set_montage(self.std_1020, verbose=False)
+            eeg = raw.copy().pick_types(eeg=True, verbose=False).filter(*self.bandpass_freq, h_trans_bandwidth=5, n_jobs=1, verbose=False) \
+                .notch_filter(self.notch_freq, trans_bandwidth=1, n_jobs=1, verbose=False)  # TODO test precomp filter (above)
+        else:
+            print('NO FILTERING')
 
-        # epoching
-        epoch = mne.Epochs(filt_raw_eeg, self.epoch_event, event_id=self.event_id, baseline=None,
-                           tmin=self.tmin_max[0], tmax=self.tmin_max[1], verbose=False)
-        epoch.apply_baseline(self.baseline, verbose=False)
-        epoch = epoch.get_data()[0]
+        # baselining
+        if self.baseline is not None:
+            epoch = mne.Epochs(eeg, self.epoch_event, event_id=self.event_id, baseline=None,
+                               tmin=self.tmin_max[0], tmax=self.tmin_max[1], verbose=False)
+            epoch.apply_baseline(self.baseline, verbose=False)
+            epoch = epoch.get_data()[0]
+        else:
+            epoch = eeg
+            print('NO BASELINING')
 
         if self.filter_percentile:
             peak2peak = np.max(np.max(epoch, axis=-1) - np.min(epoch, axis=-1))
@@ -209,12 +221,14 @@ class TDomPrepper:
             epoch = epoch[:, self.crop_i[0]:self.crop_i[1]]  # TODO test
             epoch = epoch[:, -self.crop_len:]  # just to be sure it's the right final length
 
-            self.z_means.add(epoch.mean(axis=-1))
-            self.z_vars.add(epoch.var(axis=-1))
-
-            mean = self.z_means.get().mean(axis=0, keepdims=True).T
-            var = self.z_vars.get().mean(axis=0, keepdims=True).T
-            epoch = (epoch - mean) / np.sqrt(var)
+            norm_fun = self.norm_fun
+            if self.norm_fun is None:
+                self.z_means.add(epoch.mean(axis=-1))
+                self.z_vars.add(epoch.var(axis=-1))
+                mean = self.z_means.get().mean(axis=0, keepdims=True).T
+                var = self.z_vars.get().mean(axis=0, keepdims=True).T
+                norm_fun = lambda e: (e - mean) / np.sqrt(var)
+            epoch = norm_fun(epoch)
 
             # plt.figure()
             # plt.plot(epoch[1, :])
