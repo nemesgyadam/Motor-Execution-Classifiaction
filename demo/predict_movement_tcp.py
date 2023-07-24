@@ -125,7 +125,8 @@ if __name__ == "__main__":
     events_to_msgs = {'left': 'left', 'right': 'right', 'left-right': 'up', 'nothing': 'stay'}
 
     # setup epoch preprocessing
-    prep = TDomPrepper(eeg_hist_len, sfreq, cfg['eeg_chans'], bandpass_freq, notch_freq, common=np.mean,
+    crop_len = 550
+    prep = TDomPrepper(eeg_hist_len, crop_len, sfreq, cfg['eeg_chans'], bandpass_freq, notch_freq, common=np.mean,
                        tmin_max=tmin_max, crop_t=crop_t, baseline=baseline, filter_percentile=filter_percentile)
     # TODO !!!!!!!!!!!!!!!! TEST IS THIS IN ACTION
 
@@ -147,8 +148,9 @@ if __name__ == "__main__":
 
             if eeg_buffer.count == eeg_buffer.size:
                 eeg = eeg_buffer.get()[..., chans_i]
+                epoch = prep(eeg)
 
-                x = torch.as_tensor(eeg, device=dev)[None, ...]
+                x = torch.as_tensor(epoch, device=dev)[None, ...]
                 y = model.infer(x.permute(0, 2, 1))[0]
 
                 y = np.e ** y  # log prob to prob
