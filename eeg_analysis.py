@@ -135,7 +135,7 @@ class WTFException(Exception):
 
 
 class TDomPrepper:
-    def __init__(self, epoch_len: int, crop_len: int, sfreq: int, ch_names: list, bandpass_freq=(.5, 80), notch_freq=(50, 100),
+    def __init__(self, rec_len: int, epoch_len: int, crop_len: int, sfreq: int, ch_names: list, bandpass_freq=(.5, 80), notch_freq=(50, 100),
                  common=np.mean, tmin_max=(-1.5, 2), crop_t=(-.2, None), baseline=(-1., -.05), filter_percentile=None):
         self.sfreq = sfreq
         self.ch_names = ch_names
@@ -147,14 +147,14 @@ class TDomPrepper:
         self.filter_percentile = filter_percentile
         self.crop_len = crop_len
 
-        crop_start = 0 if crop_t[0] is None else int(np.abs((tmin_max[0] - crop_t[0]) * sfreq))
+        crop_start = 0 if crop_t[0] is None else int(np.abs((tmin_max[0] - crop_t[0])) * sfreq)
         crop_end = epoch_len if crop_t[1] is None else int(np.abs(tmin_max[0]) * sfreq) + int(crop_t[1] * sfreq)
         self.crop_i = (crop_start, crop_end)
-        assert crop_end - crop_start == epoch_len
+        assert crop_end - crop_start >= crop_len
 
         self.eeg_info = mne.create_info(ch_types='eeg', ch_names=ch_names, sfreq=sfreq)
         self.std_1020 = mne.channels.make_standard_montage('standard_1020')
-        self.epoch_event = np.array([[sfreq * np.abs(tmin_max[0]), 0, 420]], dtype=np.int32)
+        self.epoch_event = np.array([[(rec_len - epoch_len) // 2 + sfreq * np.abs(tmin_max[0]), 0, 420]], dtype=np.int32)
         self.event_id = {'whatever': 420}
 
         # filtering
@@ -180,17 +180,18 @@ class TDomPrepper:
         to_filt = np.pad(eeg, ((0, 0), (len(self.filter) * 1, len(self.filter) * 1)), mode='edge')
         # filt_eeg = np.apply_along_axis(self.filt_fun, axis=1, arr=to_filt)  # TODO test if same with filt_raw_eeg below (w/o notch)
 
-        raw = mne.io.RawArray(eeg, self.eeg_info)
-        raw.set_montage(self.std_1020)
+        raw = mne.io.RawArray(eeg, self.eeg_info, verbose=False)
+        raw.set_montage(self.std_1020, verbose=False)
 
         # filter
-        filt_raw_eeg = raw.copy().pick_types(eeg=True).filter(*self.bandpass_freq, h_trans_bandwidth=5, n_jobs=1) \
-            .notch_filter(self.notch_freq, trans_bandwidth=1, n_jobs=1)  # TODO test precomp filter (above)
+        # mne.io.Raw().pick_types()
+        filt_raw_eeg = raw.copy().pick_types(eeg=True, verbose=False).filter(*self.bandpass_freq, h_trans_bandwidth=5, n_jobs=1, verbose=False) \
+            .notch_filter(self.notch_freq, trans_bandwidth=1, n_jobs=1, verbose=False)  # TODO test precomp filter (above)
 
         # epoching
         epoch = mne.Epochs(filt_raw_eeg, self.epoch_event, event_id=self.event_id, baseline=None,
-                           tmin=-self.baseline[0], tmax=None)
-        epoch.apply_baseline(self.baseline)
+                           tmin=self.tmin_max[0], tmax=self.tmin_max[1], verbose=False)
+        epoch.apply_baseline(self.baseline, verbose=False)
         epoch = epoch.get_data()[0]
 
         if self.filter_percentile:
@@ -204,17 +205,23 @@ class TDomPrepper:
         # TODO option to resample
 
         # crop & standardize
-        if epoch:
+        if epoch is not None:
             epoch = epoch[:, self.crop_i[0]:self.crop_i[1]]  # TODO test
-            assert epoch.shape[-1] >= self.crop_len
             epoch = epoch[:, -self.crop_len:]  # just to be sure it's the right final length
 
             self.z_means.add(epoch.mean(axis=-1))
             self.z_vars.add(epoch.var(axis=-1))
 
-            mean = self.z_means.get().mean(axis=0, keepdims=True)
-            var = self.z_vars.get().mean(axis=0, keepdims=True)
+            mean = self.z_means.get().mean(axis=0, keepdims=True).T
+            var = self.z_vars.get().mean(axis=0, keepdims=True).T
             epoch = (epoch - mean) / np.sqrt(var)
+
+            # plt.figure()
+            # plt.plot(epoch[1, :])
+            # plt.show(block=False)
+            # plt.draw()
+            # plt.pause(0.05)
+            # plt.clf()
 
         return epoch
 

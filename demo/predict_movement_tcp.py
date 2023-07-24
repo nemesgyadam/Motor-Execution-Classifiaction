@@ -13,6 +13,7 @@ import sys
 from pynput import keyboard
 from common import CircBuff
 from eeg_analysis import TDomPrepper
+import pandas as pd
 
 try:
     import UnicornPy
@@ -61,18 +62,19 @@ if __name__ == "__main__":
     # connect to unicorn
     deviceID = 0
     sfreq = 250
-    FrameLength = sfreq // 2
+    FrameLength = sfreq // 4
     TestsignaleEnabled = False
-    model_name = 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'  # 'braindecode_EEGResNet_2023-07-19_14-04-36'  # 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'
+    model_name = 'braindecode_EEGResNet_2023-07-19_14-04-36'  # 'braindecode_EEGResNet_2023-07-19_14-04-36'  # 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'
     dev = 'cuda'
     pred_threshold = .7
 
-    eeg_hist_len = 876  # take this from the dataset epoch length
+    rec_len = 2000  # TODO
+    epoch_len = 876  # take this from the dataset epoch length
     baseline = (-1., -.05)  # dataset property
     bandpass_freq = (.5, 80)  # dataset property
     notch_freq = (50, 100)  # dataset property
-    filter_percentile = 95  # dataset property
-    tmin_max = (-.5, 2.)  # epoch specific, check eeg_analysis or the experiment config
+    filter_percentile = None#95  # dataset property TODO
+    tmin_max = (-1.5, 2.)  # epoch specific, check eeg_analysis or the experiment config
     crop_t = (-.2, None)  # should be same as in training script
 
     # TODO keverd bele open meg closed eye recordingokat trainingsetbe mint nothing
@@ -111,31 +113,34 @@ if __name__ == "__main__":
     listener = KeyListener(sender)
 
     # Start the key listener
-    # if device is None:
-    #     with keyboard.Listener(on_press=listener.on_press, on_release=listener.on_release) as keyboard_listener:
-    #         print('use keyboard')
-    #         keyboard_listener.join()
+    if device is None:
+        with keyboard.Listener(on_press=listener.on_press, on_release=listener.on_release) as keyboard_listener:
+            print('use keyboard')
+            keyboard_listener.join()
 
     # load prediction model
     # ckpt_fname = os.path.basename(sorted(glob.glob(f'../models/{model_name}/*.ckpt'))[-1])
     model, cfg = load_model(f'../models/{model_name}', dev)
     chans_i = [eeg_ch_names.index(chan) for chan in cfg['eeg_chans']]
+    _ = model.infer(torch.zeros((1, 8, 550), device=dev))
 
     cls_to_events = {v: k for k, v in cfg['events_to_cls'].items()}
     events_to_msgs = {'left': 'left', 'right': 'right', 'left-right': 'up', 'nothing': 'stay'}
 
     # setup epoch preprocessing
     crop_len = 550
-    prep = TDomPrepper(eeg_hist_len, crop_len, sfreq, cfg['eeg_chans'], bandpass_freq, notch_freq, common=np.mean,
+    bandpass_freq = (1, 80)
+    prep = TDomPrepper(rec_len, epoch_len, crop_len, sfreq, cfg['eeg_chans'], bandpass_freq, notch_freq, common=np.mean,
                        tmin_max=tmin_max, crop_t=crop_t, baseline=baseline, filter_percentile=filter_percentile)
     # TODO !!!!!!!!!!!!!!!! TEST IS THIS IN ACTION
 
     # setup buffer
-    eeg_buffer = CircBuff(eeg_hist_len, numberOfAcquiredChannels)
+    eeg_buffer = CircBuff(rec_len, numberOfAcquiredChannels)
     if device is not None:
         device.StartAcquisition(TestsignaleEnabled)
 
     try:
+        iiiiii = 0
         while True:
             if device is not None:
                 device.GetData(FrameLength, receiveBuffer, receiveBufferBufferLength)
@@ -147,19 +152,33 @@ if __name__ == "__main__":
             eeg_buffer.add(data)
 
             if eeg_buffer.count == eeg_buffer.size:
-                eeg = eeg_buffer.get()[..., chans_i]
+                eeg = eeg_buffer.get()[..., chans_i].T
                 epoch = prep(eeg)
+                if epoch is None:
+                    print('peak2peak too high, skipped')
+                    continue
 
-                x = torch.as_tensor(epoch, device=dev)[None, ...]
-                y = model.infer(x.permute(0, 2, 1))[0]
+                # TODO rm
+                # pd.DataFrame({f'{i}': chan for i, chan in enumerate(epoch)}).to_parquet(f'tmp/stay_{iiiiii}.parquet')
+                iiiiii += 1
+
+                x = torch.as_tensor(epoch, device=dev, dtype=torch.float32)[None, ...]
+                y = model.infer(x)[0]
 
                 y = np.e ** y  # log prob to prob
-                highest = np.argmax(y)
+                if y[0] > 0.1:  # TODO predictions dropped 50% of the time when no percentile, why
+                    highest = 0
+                elif y[1] > .85:
+                    highest = 1
+                else:
+                    highest = 2  # TODO rm
+
+                # highest = np.argmax(y)
                 # print(y)
                 if y[highest] > pred_threshold:
                     msg = events_to_msgs[cls_to_events[highest]]
                     sender.send_msg(msg)
-                    print(f'{y}; sent: {msg}')
+                    print(f'{y}; sent: {msg}', file=sys.stderr)
             else:
                 print(eeg_buffer.count)
 

@@ -32,4 +32,5 @@ class CircBuff:
             ret = np.concatenate([self.buffer[self.tail:], self.buffer[:self.tail]])
 
         if self.dim == 1:
-            return np.squeeze(ret, axis=-1)
+            ret = np.squeeze(ret, axis=-1)
+        return ret
