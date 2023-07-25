@@ -32,6 +32,7 @@ from skimage.transform import resize
 from scipy.signal import resample
 from torch.utils.data.sampler import SubsetRandomSampler
 from typing import List
+import matplotlib.pyplot as plt
 
 from eeg_analysis import TDomPrepper
 
@@ -142,14 +143,15 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
 
 class MomentaryEEGTimeDomainDataset(IterableDataset):
 
-    def __init__(self, streams_path, meta_path, cfg, epoch_len,
-                 ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.85):
+    def __init__(self, streams_path, meta_path, cfg, epoch_len, session_slice=None,
+                 ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.75, add_chan_to_eeg=False):
         super().__init__()
         self.epoch_len = epoch_len
         # if not None, defines the portion of the gamepad signal to be >.5, for that gamepad btn to be classified as 1
         self.ret_likeliest_gamepad = ret_likeliest_gamepad  # None | (0, 1]
         self.max_samples = max_samples
         self.is_trial_chance = is_trial_chance
+        self.add_chan_to_eeg = add_chan_to_eeg
         # filt eeg, zscore -> rnd slice -> [TDomPrepper(NOTHING)] -> train
 
         streams_data = h5py.File(streams_path, 'r')
@@ -157,6 +159,10 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             meta_data = pickle.load(f)
         eeg_info = meta_data['eeg_info']
         self.session_ids = meta_data['session_ids']
+
+        # slice session ids (train/test)
+        if session_slice is not None:
+            self.session_ids = self.session_ids[session_slice]
 
         # get time indices for each session of valid ranges from where to slice
         # open-eye (101-201), from the first until the last "baseline" event (110)
@@ -176,6 +182,15 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             trials_end_i = np.where(sess_events[:, 2] == 110)[0][-1]
             self.trial_starts[sess] = trials_start_i
             self.trial_ends[sess] = trials_end_i
+
+        # get timepoints when gamepad L2, R2 were pulled
+        # imaginary_sessions = []
+        self.gamepad_pulled_idx = {}
+        for sess in self.session_ids:
+            gamepad_pulled = streams_data[f'gamepad_{sess}'][[4, 5], :].max(axis=0)
+            # if not gamepad_pulled.any():
+            #     imaginary_sessions.append(sess)
+            self.gamepad_pulled_idx[sess] = np.where(gamepad_pulled)[0]
 
         # pick channels
         self.relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
@@ -198,9 +213,9 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
         for _ in range(self.max_samples):
             sess = np.random.choice(self.session_ids)
             is_trial = np.random.random() < self.is_trial_chance
-            start_interval = (self.trial_starts[sess], self.trial_ends[sess] - self.epoch_len) if is_trial else \
-                (self.open_eye_starts[sess], self.open_eye_ends[sess] - self.epoch_len)
-            start_i = np.random.randint(*start_interval)
+            eye_start_interval = (self.open_eye_starts[sess], self.open_eye_ends[sess] - self.epoch_len)
+            start_i = np.random.choice(self.gamepad_pulled_idx[sess]) if is_trial \
+                else np.random.randint(*eye_start_interval)
             end_i = start_i + self.epoch_len
 
             eeg = np.asarray(self.streams_data[f'filt_raw_eeg_{sess}'][self.relevant_chans_i, start_i:end_i])
@@ -208,7 +223,10 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             if self.ret_likeliest_gamepad is not None:
                 gamepad = (np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad).astype(np.float32)
 
-            yield eeg, gamepad
+            if self.add_chan_to_eeg:
+                yield eeg.reshape((1, *eeg.shape)), gamepad
+            else:
+                yield eeg, gamepad
 
     def __getitem__(self, index) -> T_co:
         raise NotImplementedError()

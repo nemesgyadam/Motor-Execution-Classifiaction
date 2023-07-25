@@ -33,6 +33,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 from data_gen import *
+from src.models.AdamNet import EEGNet as AdamNet
 
 
 class GatherMetrics(Callback):
@@ -53,7 +54,10 @@ class BrainDecodeClassification(L.LightningModule):
         self.cfg = cfg
         self.model = model
         self.loss_fun = cfg['loss_fun']()
-        self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=len(cfg['events_to_cls']))
+        self.accuracy = None
+
+        self.num_classes = len(cfg['events_to_cls']) if 'events_to_cls' in cfg else 4  # nothing/L/R/LR
+        self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
         self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
 
         self.model.requires_grad_(True)
@@ -65,12 +69,26 @@ class BrainDecodeClassification(L.LightningModule):
 
         # window is smaller than the epoch
         if len(yy.shape) == 3:
-            yy = yy.mean(dim=-1)  # TODO !!! it's possible that there is no relevant info in the first/last/middle window, so taking the mean here could ruin
+            yy = yy.mean(dim=-1)
+            # TODO !!! it's possible that there is no relevant info in the first/last/middle window, so taking the mean here could ruin
             # TODO HAVE A LAST WEIGHTING LAYER IMPLEMENTED
             # TODO but this never runs with the models and data we have loaded rn
 
         loss = self.loss_fun(yy, y)
         return loss
+
+    @staticmethod
+    def _regr_to_classif(y):
+        acc_y_in_0 = (y[:, 0] < .5) & (y[:, 1] < .5)
+        acc_y_in_1 = (y[:, 0] >= .5) & (y[:, 1] < .5)
+        acc_y_in_2 = (y[:, 0] < .5) & (y[:, 1] >= .5)
+        acc_y_in_3 = (y[:, 0] >= .5) & (y[:, 1] >= .5)
+        acc_y_in = torch.zeros(y.shape[0], dtype=y.dtype, device=y.device)
+        acc_y_in[acc_y_in_0] = 0
+        acc_y_in[acc_y_in_1] = 1
+        acc_y_in[acc_y_in_2] = 2
+        acc_y_in[acc_y_in_3] = 3
+        return acc_y_in
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
@@ -79,9 +97,11 @@ class BrainDecodeClassification(L.LightningModule):
             yy = yy.mean(dim=-1)
 
         loss = self.loss_fun(yy, y)
-        acc = self.accuracy(yy, y)
-
         self.log("val_loss", loss, prog_bar=True)
+        if self.cfg['is_momentary']:
+            acc = self.accuracy(self._regr_to_classif(yy), self._regr_to_classif(y))
+        else:
+            acc = self.accuracy(yy, y)
         self.log("val_acc", acc, prog_bar=True)
 
     def infer(self, x):
@@ -123,6 +143,7 @@ def main(**kwargs):
         subjects=['0717b399'],  # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
         # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
+        is_momentart=False,
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1, 'nothing': 2},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
@@ -183,7 +204,7 @@ def main(**kwargs):
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
-    # TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! write it in data_gen.py/MomentaryEEGTimeDomainDataset that it can take a slice that defines the sessions it can use...
+
     train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
     # train_ds, valid_ds = split_multi_subject_by_session(datasets)
     if True:  # TODO !!! rm
