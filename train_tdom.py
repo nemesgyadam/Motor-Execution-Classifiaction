@@ -58,7 +58,7 @@ class BrainDecodeClassification(L.LightningModule):
 
         self.num_classes = len(cfg['events_to_cls']) if 'events_to_cls' in cfg else 4  # nothing/L/R/LR
         self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
-        self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
+        # self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
 
         self.model.requires_grad_(True)
         print(self.model)
@@ -143,7 +143,7 @@ def main(**kwargs):
         subjects=['0717b399'],  # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
         # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
         data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
-        is_momentart=False,
+        is_momentary=False,
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1, 'nothing': 2},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict

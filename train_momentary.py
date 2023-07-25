@@ -46,8 +46,8 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
         subjects=[],
         # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
         # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100',
-        is_momentart=True,
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
+        is_momentary=True,
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
@@ -76,7 +76,7 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
         multi_dev_strat=None,
 
         epochs=100,
-        init_lr=5e-3,
+        init_lr=1e-3,
         train_data_ratio=.85,  # ratio of training data, the rest is validation
     )
     cfg.update(kwargs)
@@ -90,7 +90,8 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
 
     # wandb.init(project='eeg-motor-execution', config=cfg)
     mne.set_log_level(False)
-    ds_settings = dict(epoch_len=550, ret_likeliest_gamepad=.3, add_chan_to_eeg=True, is_trial_chance=.7)
+    ds_settings = dict(epoch_len=550, add_chan_to_eeg=True, is_trial_chance=.85,
+                       ret_pulled_at_last_gamepad=True, ret_likeliest_gamepad=None)
 
     if len(cfg['subjects']) == 1:  # fine-tune
         subject = cfg['subjects'][0]
@@ -117,8 +118,8 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
         valid_ds = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, session_slice=slice(0, 12), **ds_settings)
 
     # check dataset balance
-    # balance = [d[1].max() for d in train_ds]
-    # print('label balance:', np.mean(balance))
+    balance = [d[1].max() for d in train_ds]
+    print('label balance:', np.mean(balance))
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
 
@@ -184,21 +185,24 @@ if __name__ == '__main__':
         EEGNet,
     ]
 
+    pretrain = True
     fine_tune_subject = '0717b399'
-    pretrain_subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100\\')
+    pretrain_subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100\\')
 
     metricz = {}
     for model_cls in models_to_try:
-        model, metrics = main(model_cls=model_cls, subjects=pretrain_subjects, fine_tune_subject=fine_tune_subject)
-        metricz[model_cls.__name__] = metrics
-        print('=' * 80, '\n', '=' * 80)
-        print('PRETRAIN')
-        print(model_cls.__name__, '|', metrics)
-        print('=' * 80, '\n', '=' * 80)
-        pprint(metricz)
+        model = None
+        if pretrain:
+            model, metrics = main(model_cls=model_cls, subjects=pretrain_subjects, fine_tune_subject=fine_tune_subject)
+            metricz[model_cls.__name__] = metrics
+            print('=' * 80, '\n', '=' * 80)
+            print('PRETRAIN')
+            print(model_cls.__name__, '|', metrics)
+            print('=' * 80, '\n', '=' * 80)
+            pprint(metricz)
 
         model, metrics = main(model_cls=model_cls, subjects=[fine_tune_subject], fine_tune_subject=fine_tune_subject,
-                              init_model=model)
+                              init_model=model, init_lr=5e-5)
         metricz[model_cls.__name__] = metrics
         print('=' * 80, '\n', '=' * 80)
         print('FINETUNE')
@@ -208,6 +212,6 @@ if __name__ == '__main__':
 
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
-    max_acc_i = np.argsort([m['max_acc'] for m in metricz.values()])[-1]
+    max_acc_i = np.argsort([m['max_val_acc'] for m in metricz.values()])[-1]
     print('best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
     print('best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])

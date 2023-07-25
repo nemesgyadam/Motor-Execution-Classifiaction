@@ -143,12 +143,13 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
 
 class MomentaryEEGTimeDomainDataset(IterableDataset):
 
-    def __init__(self, streams_path, meta_path, cfg, epoch_len, session_slice=None,
+    def __init__(self, streams_path, meta_path, cfg, epoch_len, session_slice=None, ret_pulled_at_last_gamepad=False,
                  ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.75, add_chan_to_eeg=False):
         super().__init__()
         self.epoch_len = epoch_len
         # if not None, defines the portion of the gamepad signal to be >.5, for that gamepad btn to be classified as 1
         self.ret_likeliest_gamepad = ret_likeliest_gamepad  # None | (0, 1]
+        self.ret_pulled_at_last_gamepad = ret_pulled_at_last_gamepad
         self.max_samples = max_samples
         self.is_trial_chance = is_trial_chance
         self.add_chan_to_eeg = add_chan_to_eeg
@@ -171,8 +172,12 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
         self.open_eye_starts, self.open_eye_ends = {}, {}
         self.trial_starts, self.trial_ends = {}, {}
 
+        sessions_to_rm = []
         for sess in self.session_ids:
             sess_events = events[event_session_idx == sess]
+            if len(sess_events) == 0:  # TODO weird stuff going on in some sessions (2 so far), or meta_data['session_ids'] is off
+                sessions_to_rm.append(sess)
+                continue
             open_eye_start_i = np.where(sess_events[:, 2] == 101)[0][0]
             open_eye_end_i = np.where(sess_events[:, 2] == 201)[0][0]
             self.open_eye_starts[sess] = sess_events[open_eye_start_i, 0]
@@ -183,14 +188,22 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             self.trial_starts[sess] = trials_start_i
             self.trial_ends[sess] = trials_end_i
 
+        self.session_ids = [sid for sid in self.session_ids if sid not in sessions_to_rm]
+
         # get timepoints when gamepad L2, R2 were pulled
         # imaginary_sessions = []
         self.gamepad_pulled_idx = {}
         for sess in self.session_ids:
             gamepad_pulled = streams_data[f'gamepad_{sess}'][[4, 5], :].max(axis=0)
+            gamepad_pulled = np.where(gamepad_pulled)[0]
+            if self.ret_pulled_at_last_gamepad:
+                gamepad_pulled = np.unique(np.concatenate([gamepad_pulled - epoch_len, gamepad_pulled]))
+            else:
+                gamepad_pulled = np.unique(np.concatenate([gamepad_pulled - epoch_len, gamepad_pulled,
+                                                           gamepad_pulled + epoch_len]))
             # if not gamepad_pulled.any():
             #     imaginary_sessions.append(sess)
-            self.gamepad_pulled_idx[sess] = np.where(gamepad_pulled)[0]
+            self.gamepad_pulled_idx[sess] = gamepad_pulled
 
         # pick channels
         self.relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
@@ -222,6 +235,8 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             gamepad = np.asarray(self.streams_data[f'gamepad_{sess}'][[4, 5], start_i:end_i])  # L2, R2
             if self.ret_likeliest_gamepad is not None:
                 gamepad = (np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad).astype(np.float32)
+            elif self.ret_pulled_at_last_gamepad:
+                gamepad = (gamepad[:, -1] > .5).astype(np.float32)
 
             if self.add_chan_to_eeg:
                 yield eeg.reshape((1, *eeg.shape)), gamepad
