@@ -54,6 +54,7 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
         resample=1.,  # no resample = 1.  # TODO
+        stream_pred=True,
 
         batch_size=32,
         num_workers=0,  # dataloader can't pickle pointer to h5
@@ -82,7 +83,11 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
     cfg.update(kwargs)
     pprint(cfg)
 
-    model_params = dict(AdamNet={'out_dim': 2}, EEGNet={'num_classes': 2, 'channels': 8, 'samples': 550})
+    epoch_len = int(550 * cfg['resample'])
+    model_params = dict(AdamNet={'out_dim': 2, 'add_channel': True},
+                        EEGNet={'num_classes': 2, 'channels': 8, 'samples': epoch_len,
+                                **dict(dropout_rate=0.3, kernel_length=256, num_filters1=64,
+                                       depth_multiplier=8, num_filters2=128)})
 
     random.seed(42)
     np.random.seed(42)
@@ -90,8 +95,8 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
 
     # wandb.init(project='eeg-motor-execution', config=cfg)
     mne.set_log_level(False)
-    ds_settings = dict(epoch_len=550, add_chan_to_eeg=True, is_trial_chance=.85,
-                       ret_pulled_at_last_gamepad=True, ret_likeliest_gamepad=None)
+    ds_settings = dict(epoch_len=epoch_len, is_trial_chance=.9,
+                       ret_pulled_at_last_gamepad=True, ret_likeliest_gamepad=.2)
 
     if len(cfg['subjects']) == 1:  # fine-tune
         subject = cfg['subjects'][0]
@@ -141,16 +146,12 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
     with open(f'models/{model_name}/cfg.pkl', 'wb') as f:
         pickle.dump({'cfg': cfg, 'model_params': model_params}, f)
 
+    print(f'MODEL: models/{model_name}')
     gather_metrics = GatherMetrics()
+    model_checkpoint = ModelCheckpoint(f'models/{model_name}', model_fname_template, monitor='val_loss',
+                                       save_top_k=1,save_last=False,verbose=True)
     callbacks = [
-        ModelCheckpoint(
-            f'models/{model_name}',
-            model_fname_template,
-            monitor='val_loss',
-            save_top_k=1,
-            save_last=False,
-            verbose=True,
-        ),
+        model_checkpoint,
         LearningRateMonitor(logging_interval='step'),
         EarlyStopping('val_loss', patience=cfg['early_stopping_patience']),
         gather_metrics,
@@ -174,14 +175,17 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
     min_val_loss = min([m['val_loss'].item() for m in gather_metrics.metrics])
     max_val_acc = max([m['val_acc'].item() for m in gather_metrics.metrics])
 
-    return model, dict(min_val_loss=min_val_loss, max_val_acc=max_val_acc)
+    model = BrainDecodeClassification.load_from_checkpoint(model_checkpoint.best_model_path,
+                                                           model=cfg['model_cls'](**model_params[cfg['model_cls'].__name__]),
+                                                           cfg=cfg).model
+    return model, classif, dict(min_val_loss=min_val_loss, max_val_acc=max_val_acc, confusion=classif.accum_conf)
 
 
 if __name__ == '__main__':
     torch.use_deterministic_algorithms(False)
 
     models_to_try = [
-        AdamNet,
+        # AdamNet,
         EEGNet,
     ]
 
@@ -193,7 +197,8 @@ if __name__ == '__main__':
     for model_cls in models_to_try:
         model = None
         if pretrain:
-            model, metrics = main(model_cls=model_cls, subjects=pretrain_subjects, fine_tune_subject=fine_tune_subject)
+            model, classif, metrics = main(model_cls=model_cls, subjects=pretrain_subjects,
+                                           fine_tune_subject=fine_tune_subject, init_lr=5e-4)
             metricz[model_cls.__name__] = metrics
             print('=' * 80, '\n', '=' * 80)
             print('PRETRAIN')
@@ -201,8 +206,10 @@ if __name__ == '__main__':
             print('=' * 80, '\n', '=' * 80)
             pprint(metricz)
 
-        model, metrics = main(model_cls=model_cls, subjects=[fine_tune_subject], fine_tune_subject=fine_tune_subject,
-                              init_model=model, init_lr=5e-5)
+        model, classif, metrics = main(model_cls=model_cls, subjects=[fine_tune_subject],
+                                       fine_tune_subject=fine_tune_subject, init_model=model, init_lr=1e-4)
+
+        # torchmetrics.ConfusionMatrix('multiclass', num_classes=4).update(classif.accum_conf).plot()
         metricz[model_cls.__name__] = metrics
         print('=' * 80, '\n', '=' * 80)
         print('FINETUNE')
@@ -210,8 +217,33 @@ if __name__ == '__main__':
         print('=' * 80, '\n', '=' * 80)
         pprint(metricz)
 
+        targets = torch.concatenate(classif.val_targets, dim=0)
+        preds = torch.concatenate(classif.val_preds, dim=0)
+        print('target mean:', torch.mean(targets, dim=0))
+        print('pred mean:  ', torch.mean(preds, dim=0))
+
+        left_pull = preds[targets[:, 0] == 1, 0]
+        not_left_pull = preds[targets[:, 0] == 0, 0]
+        right_pull = preds[targets[:, 1] == 1, 1]
+        not_right_pull = preds[targets[:, 1] == 0, 1]
+        plt.figure()
+        for pname, p in zip(['left_pull', 'not_left_pull', 'right_pull', 'not_right_pull'],
+                            [left_pull, not_left_pull, right_pull, not_right_pull]):
+            plt.hist(p.cpu().numpy(), bins=30, label=pname, alpha=.4)
+        plt.legend()
+        plt.title(model_cls.__name__)
+
+        plt.figure()
+        plt.imshow(metrics['confusion'].cpu().numpy())
+        plt.title(model_cls.__name__)
+        plt.show(block=True)
+
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
     max_acc_i = np.argsort([m['max_val_acc'] for m in metricz.values()])[-1]
     print('best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
     print('best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])
+
+    # plt.figure()
+    # plt.imshow(metricz[model_names[max_acc_i]]['confusion'].cpu().numpy())
+    # plt.show()

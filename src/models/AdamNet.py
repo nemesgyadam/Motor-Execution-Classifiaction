@@ -1,5 +1,7 @@
 import torch
-from torch import nn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 class EncodingUnit(nn.Module):
@@ -20,15 +22,22 @@ class EncodingUnit(nn.Module):
 
 
 class AdamNet(nn.Module):  # TODO use it
-    def __init__(self, out_dim):
+    def __init__(self, out_dim, softmax=False, add_channel=False):
         super(AdamNet, self).__init__()
+        self.add_channel = add_channel
         self.encoder1 = EncodingUnit(1, 16)
         self.encoder2 = EncodingUnit(16, 32)
         self.encoder3 = EncodingUnit(32, 64)
         self.out_lin = nn.Linear(640, out_dim)  # TODO hardcoded
-        self.out_act = nn.Sigmoid()
+        if softmax:
+            self.out_act = nn.Softmax()
+        else:
+            self.out_act = nn.Sigmoid()
 
     def forward(self, x):
+        if self.add_channel:
+            x = torch.unsqueeze(x, 1)
+
         x = self.encoder1(x)
         x = self.encoder2(x)
         x = self.encoder3(x)
@@ -38,19 +47,15 @@ class AdamNet(nn.Module):  # TODO use it
         return x
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
 class EEGNet(nn.Module):
     def __init__(self, num_classes: int = 4, channels: int = 22, samples: int = 401,
                  dropout_rate: float = 0.5, kernel_length: int = 64, num_filters1: int = 16,
-                 depth_multiplier: int = 2, num_filters2: int = 32, norm_rate: float = 0.25) -> None:
+                 depth_multiplier: int = 2, num_filters2: int = 32, norm_rate: float = 0.25, softmax=False, add_channel=False) -> None:
         super(EEGNet, self).__init__()
 
         self.channels = channels
         self.samples = samples
+        self.add_channel = add_channel
 
         # First convolutional block
         # Temporal convolutional to learn frequency filters
@@ -79,7 +84,11 @@ class EEGNet(nn.Module):
         # Fully connected layer
         self.flatten = nn.Flatten()
         self.dense = nn.Linear(num_filters2 * (samples // 32), num_classes)
-        self.out_activation = nn.Sigmoid()
+
+        if softmax:
+            self.out_activation = nn.Softmax()
+        else:
+            self.out_activation = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.view(-1, 1, self.channels, self.samples)

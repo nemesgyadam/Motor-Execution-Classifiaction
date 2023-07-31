@@ -144,7 +144,7 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
 class MomentaryEEGTimeDomainDataset(IterableDataset):
 
     def __init__(self, streams_path, meta_path, cfg, epoch_len, session_slice=None, ret_pulled_at_last_gamepad=False,
-                 ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.75, add_chan_to_eeg=False):
+                 ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.75):
         super().__init__()
         self.epoch_len = epoch_len
         # if not None, defines the portion of the gamepad signal to be >.5, for that gamepad btn to be classified as 1
@@ -152,7 +152,6 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
         self.ret_pulled_at_last_gamepad = ret_pulled_at_last_gamepad
         self.max_samples = max_samples
         self.is_trial_chance = is_trial_chance
-        self.add_chan_to_eeg = add_chan_to_eeg
         # filt eeg, zscore -> rnd slice -> [TDomPrepper(NOTHING)] -> train
 
         streams_data = h5py.File(streams_path, 'r')
@@ -233,15 +232,15 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
 
             eeg = np.asarray(self.streams_data[f'filt_raw_eeg_{sess}'][self.relevant_chans_i, start_i:end_i])
             gamepad = np.asarray(self.streams_data[f'gamepad_{sess}'][[4, 5], start_i:end_i])  # L2, R2
-            if self.ret_likeliest_gamepad is not None:
+            if self.ret_likeliest_gamepad is not None and self.ret_pulled_at_last_gamepad:
+                gamepad = ((np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad) &
+                           (gamepad[:, -1] > .5)).astype(np.float32)
+            elif self.ret_likeliest_gamepad is not None:
                 gamepad = (np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad).astype(np.float32)
             elif self.ret_pulled_at_last_gamepad:
                 gamepad = (gamepad[:, -1] > .5).astype(np.float32)
 
-            if self.add_chan_to_eeg:
-                yield eeg.reshape((1, *eeg.shape)), gamepad
-            else:
-                yield eeg, gamepad
+            yield eeg, gamepad
 
     def __getitem__(self, index) -> T_co:
         raise NotImplementedError()

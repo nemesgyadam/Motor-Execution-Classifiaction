@@ -33,7 +33,8 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 from data_gen import *
-from src.models.AdamNet import EEGNet as AdamNet
+from src.models.AdamNet import EEGNet, AdamNet
+from src.models.eeglearn_pytorch_models import MaxCNN, Mix, TempCNN, LSTM, BasicCNN
 
 
 class GatherMetrics(Callback):
@@ -55,9 +56,13 @@ class BrainDecodeClassification(L.LightningModule):
         self.model = model
         self.loss_fun = cfg['loss_fun']()
         self.accuracy = None
+        self.accum_conf = None
+        self.val_preds = None
+        self.val_targets = None
 
         self.num_classes = len(cfg['events_to_cls']) if 'events_to_cls' in cfg else 4  # nothing/L/R/LR
         self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
+        self.confusion = torchmetrics.ConfusionMatrix('multiclass', num_classes=self.num_classes)
         # self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
 
         self.model.requires_grad_(True)
@@ -99,10 +104,23 @@ class BrainDecodeClassification(L.LightningModule):
         loss = self.loss_fun(yy, y)
         self.log("val_loss", loss, prog_bar=True)
         if self.cfg['is_momentary']:
-            acc = self.accuracy(self._regr_to_classif(yy), self._regr_to_classif(y))
+            y_regr = self._regr_to_classif(y)
+            yy_regr = self._regr_to_classif(yy)
+            acc = self.accuracy(yy_regr, y_regr)
+            conf = self.confusion(yy_regr, y_regr)
         else:
             acc = self.accuracy(yy, y)
+            conf = self.confusion(yy, y)
         self.log("val_acc", acc, prog_bar=True)
+
+        if batch_idx == 0:
+            self.accum_conf = conf
+            self.val_preds = [yy]
+            self.val_targets = [y]
+        else:
+            self.accum_conf += conf
+            self.val_preds.append(yy)
+            self.val_targets.append(y)
 
     def infer(self, x):
         with torch.no_grad():
@@ -137,24 +155,25 @@ def load_model(path_to_dir, device='cuda'):
 
 def main(**kwargs):
 
-    subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100\\')
+    subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100\\')
 
     cfg = dict(
         subjects=['0717b399'],  # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
         # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100',
         is_momentary=False,
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'nothing': 2},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
         # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
         resample=1.,  # no resample = 1.  # TODO
+        stream_pred=False,
 
         batch_size=32,
-        num_workers=8,
-        prefetch_factor=4,
+        num_workers=0,
+        prefetch_factor=2,
         accumulate_grad_batches=1,
         precision=32,  # 16 | 32
         gradient_clip_val=1,
@@ -193,8 +212,8 @@ def main(**kwargs):
         streams_path = f'{cfg["data_ver"]}/{subject}/{subject}_streams.h5'
         meta_path = f'{cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
         # manual data loading
-        # data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
-        data = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, epoch_len=550, ret_likeliest_gamepad=.3)  # TODO
+        data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
+        # data = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, epoch_len=550, ret_likeliest_gamepad=.3)  # TODO
         datasets.append(data)
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
@@ -218,8 +237,7 @@ def main(**kwargs):
         valid_dl = DataLoader(valid_ds, cfg['batch_size'], shuffle=False, **dl_params)
 
         # init model
-        # n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
-        n_classes = 2  # TODO
+        n_classes = len(np.unique(list(cfg['events_to_cls'].values())))
 
         # each model has its own parameter set, braindecode is fucked up, this per model parametrization is necessary
         # https://braindecode.org/stable/api.html#models
@@ -239,6 +257,9 @@ def main(**kwargs):
             EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
                            n_first_filters=16, final_pool_length=8),
             TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
+            AdamNet={'out_dim': n_classes, 'softmax': True, 'add_channel': True},
+            EEGNet={'num_classes': n_classes, 'channels': 8, 'samples': int(550 * cfg['resample']), 'softmax': True,
+                    **dict(dropout_rate=0.3, kernel_length=256, num_filters1=64, depth_multiplier=8, num_filters2=128)}
         )
 
         model = cfg['model_cls'](**model_params[cfg['model_cls'].__name__])
@@ -288,40 +309,51 @@ def main(**kwargs):
         min_val_losses.append(min_val_loss)
         max_val_accs.append(max_acc)
 
+        # torchmetrics.ConfusionMatrix('multiclass', num_classes=4).update(classif.accum_conf).plot()
+
     return dict(min_val_loss=np.mean(min_val_losses), max_acc=np.mean(max_val_accs),
-                min_val_loss_std=np.std(min_val_losses), max_acc_std=np.std(max_val_accs))
+                min_val_loss_std=np.std(min_val_losses), max_acc_std=np.std(max_val_accs),
+                confusion=classif.accum_conf)
 
 
 if __name__ == '__main__':
     torch.use_deterministic_algorithms(False)
 
     models_to_try = [  # TODO
+        # EEGNet,
+        # AdamNet,  # TODO
+
         ShallowFBCSPNet,
-        Deep4Net,
-        EEGInception,
-        EEGITNet,
-        EEGNetv1,
-        EEGNetv4,
-        HybridNet,
+        # Deep4Net,
+        # EEGInception,
+        # EEGITNet,
+        # EEGNetv1,
+        # EEGNetv4,
+        # HybridNet,
         EEGResNet,
-        TIDNet
+        # TIDNet
     ]
 
     # left out: TCN, SleepStager..., USleep, TIDNet
     metricz = {}
     fails = []
-    for model in models_to_try:
+    for model_cls in models_to_try:
         try:  # TODO
         # if True:
-            metrics = main(model_cls=model, batch_size=8)
-            metricz[model.__name__] = metrics
+            metrics = main(model_cls=model_cls, batch_size=8)
+            metricz[model_cls.__name__] = metrics
             print('=' * 80, '\n', '=' * 80)
-            print(model.__name__, '|', metrics)
+            print(model_cls.__name__, '|', metrics)
             print('=' * 80, '\n', '=' * 80)
             pprint(metricz)
+
+            plt.figure()
+            plt.imshow(metrics['confusion'].cpu().numpy())
+            plt.title(model_cls.__name__)
+            plt.show(block=False)
         except Exception as e:
             print(e, file=sys.stderr)
-            fails.append(model.__name__)
+            fails.append(model_cls.__name__)
 
     model_names = list(metricz.keys())
     min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
@@ -329,3 +361,7 @@ if __name__ == '__main__':
     print('best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
     print('best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])
     print('fails:', fails, file=sys.stderr)
+
+    plt.figure()
+    plt.imshow(metricz[model_names[max_acc_i]]['confusion'].cpu().numpy())
+    plt.show()
