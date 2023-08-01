@@ -95,8 +95,8 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
 
     # wandb.init(project='eeg-motor-execution', config=cfg)
     mne.set_log_level(False)
-    ds_settings = dict(epoch_len=epoch_len, is_trial_chance=.9,
-                       ret_pulled_at_last_gamepad=True, ret_likeliest_gamepad=.2)
+    ds_settings = dict(epoch_len=epoch_len, is_trial_chance=1., pulled_balance=.7,
+                       ret_pulled_at_last_gamepad=True, ret_likeliest_gamepad=.1)
 
     if len(cfg['subjects']) == 1:  # fine-tune
         subject = cfg['subjects'][0]
@@ -104,7 +104,7 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
         streams_path = f'{cfg["data_ver"]}/{subject}/{subject}_streams.h5'
         meta_path = f'{cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
         train_ds = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, session_slice=slice(0, 10), **ds_settings)
-        valid_ds = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, session_slice=slice(10, 12), **ds_settings)
+        valid_ds = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, session_slice=slice(10, 12), **ds_settings)  # TODO check by adding one more to training
 
     else:  # pretrain
         assert fine_tune_subject is not None
@@ -125,6 +125,8 @@ def main(init_model=None, fine_tune_subject=None, **kwargs):
     # check dataset balance
     balance = [d[1].max() for d in train_ds]
     print('label balance:', np.mean(balance))
+    # for s, ds in zip(cfg['subjects'], train_ds.datasets):
+    #     print(s, ds.anyad / ds.count)
 
     assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
 

@@ -244,19 +244,24 @@ def main(**kwargs):
         iws = data[0][0].shape[1]
         model_params = dict(  # what a marvelously fucked up library
             ShallowFBCSPNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                                 final_conv_length=cfg['final_conv_length']),
+                                 final_conv_length=cfg['final_conv_length'], n_filters_time=40,
+                                 filter_time_length=25, n_filters_spat=40, pool_time_length=75, pool_time_stride=15),
             Deep4Net=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                          final_conv_length=cfg['final_conv_length']),
-            EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=data.sfreq),
+                          final_conv_length=cfg['final_conv_length'], n_filters_time=25, n_filters_spat=25,
+                          filter_time_length=10, n_filters_2=50, filter_length_2=10, n_filters_3=100,
+                          filter_length_3=10, n_filters_4=200, filter_length_4=10),
+            EEGInception=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws, sfreq=data.sfreq,
+                              n_filters=8),
             EEGITNet=dict(in_channels=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
             EEGNetv1=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
                           final_conv_length=cfg['final_conv_length']),
             EEGNetv4=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                          final_conv_length=cfg['final_conv_length']),
+                          final_conv_length=cfg['final_conv_length'], F1=8, D=2, F2=16, kernel_length=64, third_kernel_size=(8, 4)),
             HybridNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
             EEGResNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
-                           n_first_filters=16, final_pool_length=8),
-            TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws),
+                           n_first_filters=16, final_pool_length=8, n_layers_per_block=2),
+            TIDNet=dict(in_chans=len(cfg['eeg_chans']), n_classes=n_classes, input_window_samples=iws,
+                        s_growth=24, t_filters=32, temp_layers=2, spat_layers=2, bottleneck=3),
             AdamNet={'out_dim': n_classes, 'softmax': True, 'add_channel': True},
             EEGNet={'num_classes': n_classes, 'channels': 8, 'samples': int(550 * cfg['resample']), 'softmax': True,
                     **dict(dropout_rate=0.3, kernel_length=256, num_filters1=64, depth_multiplier=8, num_filters2=128)}
@@ -323,15 +328,15 @@ if __name__ == '__main__':
         # EEGNet,
         # AdamNet,  # TODO
 
-        ShallowFBCSPNet,
-        # Deep4Net,
-        # EEGInception,
+        ShallowFBCSPNet,  # TODO !!!!!!!!!!!!!!!!!!!!!!!!!!! upscale all networks in here by their model_params
+        Deep4Net,
+        EEGInception,
         # EEGITNet,
         # EEGNetv1,
-        # EEGNetv4,
+        EEGNetv4,
         # HybridNet,
         EEGResNet,
-        # TIDNet
+        TIDNet
     ]
 
     # left out: TCN, SleepStager..., USleep, TIDNet
