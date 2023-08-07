@@ -31,6 +31,7 @@ from pprint import pprint
 from itertools import combinations
 from datetime import datetime
 import matplotlib.pyplot as plt
+from torch import nn
 
 from data_gen import *
 from src.models.AdamNet import EEGNet, AdamNet
@@ -141,6 +142,27 @@ class BrainDecodeClassification(L.LightningModule):
         }
 
 
+class Ensemble(torch.nn.Module):
+    def __init__(self, models: List[torch.nn.Module], classifs: List[BrainDecodeClassification],
+                 accuracies: np.ndarray):
+        super().__init__()
+        self.models = models
+        self.classifs = classifs
+        self.accuracies = accuracies.reshape((-1, 1, 1))
+
+    def forward(self, x):
+        votes = np.stack([torch.exp(c(x)) for c in self.models], axis=0)  # models x batch x classes
+        votes = (votes * self.accuracies).sum(axis=0)  # batch x classes
+        votes = torch.argmax(votes, dim=1)
+        return votes
+
+    def infer(self, x):
+        votes = np.stack([np.exp(c.infer(x)) for c in self.classifs], axis=0)  # models x batch x classes
+        votes = (votes * self.accuracies).sum(axis=0)  # batch x classes
+        votes = np.argmax(votes, axis=1)
+        return votes
+
+
 def load_model(path_to_dir, device='cuda'):
     ckpt_fname = sorted(glob.glob(f'{path_to_dir}/*.ckpt'))[-1]
 
@@ -153,51 +175,30 @@ def load_model(path_to_dir, device='cuda'):
     return classif, cfg
 
 
-def main(param_updates, **kwargs):
+def ensemble_validation(models: List[torch.nn.Module], classifs: List[BrainDecodeClassification],
+                        data_loader: DataLoader, accuracies: np.ndarray):
+    accuracies = accuracies.reshape((-1, 1, 1))
+    accuracy = torchmetrics.Accuracy('multiclass', num_classes=classifs[0].num_classes)
+    confusion = torchmetrics.ConfusionMatrix('multiclass', num_classes=classifs[0].num_classes)
+    votez, ys = [], []
 
-    subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100\\')
+    for x, y in data_loader:
+        votes = np.stack([np.exp(c.infer(x)) for c in classifs], axis=0)  # models x batch x classes
+        votes = (votes * accuracies).sum(axis=0)  # batch x classes
+        votes = np.argmax(votes, axis=1)
+        votez.append(votes)
+        ys.append(y)
 
-    cfg = dict(
-        subjects=['0717b399'],  # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
-        # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100',
-        is_momentary=False,
+    votez = torch.as_tensor(np.concatenate(votez))
+    ys = torch.as_tensor(np.concatenate(ys))
 
-        # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
-        # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
-        eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
-        crop_t=(-.2, None),  # the part of the epoch to include
-        resample=1.,  # no resample = 1.  # TODO
-        stream_pred=False,
+    acc = accuracy(votez, ys).numpy()
+    conf = confusion(votez, ys).numpy()
+    print(f'ENSEMBLE MODELING: accuracy: {acc}; confusion: {conf}')
 
-        batch_size=32,
-        num_workers=0,
-        prefetch_factor=2,
-        accumulate_grad_batches=1,
-        precision=32,  # 16 | 32
-        gradient_clip_val=1,
-        loss_fun=NLLLoss,
-        # number of times to randomly re-split train and valid, metrics are averaged across splits
-        n_fold=4,
-        # number of sessions to use as validation in k-fold cross-valid - all combinations are computed
-        leave_k_out=None,
-        reduce_lr_patience=3,
-        early_stopping_patience=12,
 
-        model_cls=ShallowFBCSPNet,  # default model
-        # number of samples to include in each window of the decoder - now set to the full recording length
-        # input_window_samples=100,
-        final_conv_length='auto',
-
-        dev='cuda',
-        ndev=1,
-        multi_dev_strat=None,
-
-        epochs=100,
-        init_lr=5e-3,
-        train_data_ratio=.85,  # ratio of training data, the rest is validation
-    )
+def main(cfg, param_updates, **kwargs):
+    cfg = deepcopy(cfg)
     cfg.update(kwargs)
     pprint(cfg)
 
@@ -216,14 +217,15 @@ def main(param_updates, **kwargs):
         # data = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, epoch_len=550, ret_likeliest_gamepad=.3)  # TODO
         datasets.append(data)
 
-    assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
-    ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
-    print('split generator:', ds_split_gen)
+    # assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
+    # ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
+    # print('split generator:', ds_split_gen)
 
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
 
+    # TODO hardcoded the split here; 13, 14 are imaginary
     train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # TODO !!!! 13, 15 valid
     # train_ds, valid_ds = split_multi_subject_by_session(datasets)
     if True:  # TODO !!! rm
@@ -282,15 +284,15 @@ def main(param_updates, **kwargs):
             pickle.dump({'cfg': cfg, 'model_params': model_params}, f)
 
         gather_metrics = GatherMetrics()
+        model_checkpoint = ModelCheckpoint(
+            f'models/{model_name}',
+            model_fname_template,
+            monitor='val_loss',
+            save_top_k=1,
+            save_last=False,
+            verbose=True)
         callbacks = [
-            ModelCheckpoint(
-                f'models/{model_name}',
-                model_fname_template,
-                monitor='val_loss',
-                save_top_k=1,
-                save_last=False,
-                verbose=True,
-            ),
+            model_checkpoint,
             LearningRateMonitor(logging_interval='step'),
             EarlyStopping('val_loss', patience=cfg['early_stopping_patience']),
             gather_metrics,
@@ -320,25 +322,74 @@ def main(param_updates, **kwargs):
 
         # torchmetrics.ConfusionMatrix('multiclass', num_classes=4).update(classif.accum_conf).plot()
 
-    return dict(min_val_loss=np.mean(min_val_losses), max_acc=np.mean(max_val_accs),
-                min_val_loss_std=np.std(min_val_losses), max_acc_std=np.std(max_val_accs),
-                confusion=classif.accum_conf)
+    metrics = dict(min_val_loss=np.mean(min_val_losses), max_acc=np.mean(max_val_accs),
+                   min_val_loss_std=np.std(min_val_losses), max_acc_std=np.std(max_val_accs),
+                   confusion=classif.accum_conf)
+    model = BrainDecodeClassification.load_from_checkpoint(model_checkpoint.best_model_path,
+                                                           model=cfg['model_cls'](**model_params[cfg['model_cls'].__name__]),
+                                                           cfg=cfg).model
+    return model, classif, trainer, metrics
 
 
 if __name__ == '__main__':
+    subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100\\')
+
+    default_cfg = dict(
+        subjects=['0717b399'],  # subjects,  # ['1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
+        # data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.5_bad-95_c34-True',  # 2-50 Hz
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100',
+        is_momentary=False,
+
+        # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
+        events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
+        # TODO {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},  # classes to predict
+        # eeg channels to use ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'C4', 'Cz']
+        eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
+        crop_t=(-.2, None),  # the part of the epoch to include
+        resample=1.,  # no resample = 1.  # TODO
+        stream_pred=False,
+
+        batch_size=32,
+        num_workers=0,
+        prefetch_factor=2,
+        accumulate_grad_batches=1,
+        precision=32,  # 16 | 32
+        gradient_clip_val=1,
+        loss_fun=NLLLoss,
+        # number of times to randomly re-split train and valid, metrics are averaged across splits
+        n_fold=None,
+        # number of sessions to use as validation in k-fold cross-valid - all combinations are computed
+        leave_k_out=None,
+        reduce_lr_patience=3,
+        early_stopping_patience=12,
+
+        model_cls=ShallowFBCSPNet,  # default model
+        # number of samples to include in each window of the decoder - now set to the full recording length
+        # input_window_samples=100,
+        final_conv_length='auto',
+
+        dev='cuda',
+        ndev=1,
+        multi_dev_strat=None,
+
+        epochs=100,  # TODO
+        init_lr=5e-3,
+        train_data_ratio=.85,  # ratio of training data, the rest is validation
+    )
+
     torch.use_deterministic_algorithms(False)
 
     models_to_try = [  # TODO
         # EEGNet,
         # AdamNet,  # TODO
 
-        ShallowFBCSPNet,  # TODO !!!!!!!!!!!!!!!!!!!!!!!!!!! upscale all networks in here by their model_params
+        ShallowFBCSPNet,
         Deep4Net,
         EEGInception,
-        # EEGITNet,
-        # EEGNetv1,
+        EEGITNet,
+        EEGNetv1,
         EEGNetv4,
-        # HybridNet,
+        HybridNet,
         EEGResNet,
         TIDNet
     ]
@@ -378,28 +429,33 @@ if __name__ == '__main__':
              EEGResNet=dict(n_first_filters=64, final_pool_length=8, n_layers_per_block=8),
              TIDNet=dict(s_growth=116, t_filters=128, temp_layers=8, spat_layers=8, bottleneck=12)),
 
-        # sensible ?
-        dict(ShallowFBCSPNet=dict(n_filters_time=128, filter_time_length=50, n_filters_spat=64,
-                                  pool_time_length=100, pool_time_stride=25),
+        # empirical
+        dict(ShallowFBCSPNet=dict(n_filters_time=40, filter_time_length=25, n_filters_spat=40,
+                                  pool_time_length=75, pool_time_stride=15),
              Deep4Net=dict(n_filters_time=32, n_filters_spat=32, filter_time_length=20, n_filters_2=64,
-                           filter_length_2=20, n_filters_3=128, filter_length_3=20, n_filters_4=256,
-                           filter_length_4=20),
-             EEGInception=dict(n_filters=32, depth_multiplier=8),
-             EEGNetv4=dict(F1=32, D=2, F2=64, kernel_length=64, third_kernel_size=(8, 4)),
-             EEGResNet=dict(n_first_filters=32, final_pool_length=8, n_layers_per_block=4),
-             TIDNet=dict(s_growth=64, t_filters=64, temp_layers=4, spat_layers=4, bottleneck=8)),
+                           filter_length_2=10, n_filters_3=128, filter_length_3=10, n_filters_4=256,
+                           filter_length_4=10),
+             EEGInception=dict(n_filters=8, depth_multiplier=2),
+             EEGNetv4=dict(F1=8, D=2, F2=16, kernel_length=64, third_kernel_size=(8, 4)),
+             EEGResNet=dict(n_first_filters=64, final_pool_length=8, n_layers_per_block=2),
+             TIDNet=dict(s_growth=24, t_filters=32, temp_layers=2, spat_layers=2, bottleneck=3)),
     ]
+    model_params_updates = model_params_updates[-1:]  # TODO
 
     # left out: TCN, SleepStager..., USleep, TIDNet
     for update_i, updates in enumerate(model_params_updates):
         metricz = {}
         fails = []
+        models, classifs, accuracies = [], [], []
 
         for model_cls in models_to_try:
-            try:  # TODO
-            # if True:
-                metrics = main(model_cls=model_cls, batch_size=8, param_updates=updates)
+            # try:
+            if True:
+                model, classif, trainer, metrics = main(default_cfg, updates, model_cls=model_cls, batch_size=8)
+                models.append(model)
+                classifs.append(classif)
                 metricz[model_cls.__name__] = metrics
+                accuracies.append(metrics['max_acc'])
                 print('=' * 80, '\n', '=' * 80)
                 print(update_i, model_cls.__name__, '|', metrics)
                 print('=' * 80, '\n', '=' * 80)
@@ -409,9 +465,10 @@ if __name__ == '__main__':
                 plt.imshow(metrics['confusion'].cpu().numpy())
                 plt.title(f'{update_i}/{model_cls.__name__}')
                 # plt.show(block=False)
-            except Exception as e:
-                print(e, file=sys.stderr)
-                fails.append(model_cls.__name__)
+
+            # except Exception as e:
+            #     print(e, file=sys.stderr)
+            #     fails.append(model_cls.__name__)
 
         model_names = list(metricz.keys())
         min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
@@ -422,4 +479,19 @@ if __name__ == '__main__':
 
         plt.figure()
         plt.imshow(metricz[model_names[max_acc_i]]['confusion'].cpu().numpy())
+
+        # ensemble
+        subject = '0717b399'
+        streams_path = f'{default_cfg["data_ver"]}/{subject}/{subject}_streams.h5'
+        meta_path = f'{default_cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
+        data = EEGTimeDomainDataset(streams_path, meta_path, default_cfg)
+
+        dl_params = dict(num_workers=default_cfg['num_workers'], prefetch_factor=default_cfg['prefetch_factor'],
+                         persistent_workers=default_cfg['num_workers'] > 0, pin_memory=True)
+        train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11),
+                                                       valid_session_idx=np.arange(11, 13))
+        valid_dl = DataLoader(valid_ds, default_cfg['batch_size'], shuffle=False, **dl_params)
+
+        ensemble_validation(models, classifs, valid_dl, np.array(accuracies))
+
     plt.show()
