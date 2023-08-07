@@ -384,14 +384,14 @@ if __name__ == '__main__':
         # AdamNet,  # TODO
 
         ShallowFBCSPNet,
-        Deep4Net,
-        EEGInception,
-        EEGITNet,
-        EEGNetv1,
+        # Deep4Net,
+        # EEGInception,
+        # EEGITNet,
+        # EEGNetv1,
         EEGNetv4,
         HybridNet,
         EEGResNet,
-        TIDNet
+        # TIDNet
     ]
 
     # model parameter updates
