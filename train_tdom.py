@@ -153,7 +153,7 @@ def load_model(path_to_dir, device='cuda'):
     return classif, cfg
 
 
-def main(**kwargs):
+def main(param_updates, **kwargs):
 
     subjects = os.listdir('c:\\wut\\asura\\Motor-Execution-Classifiaction\\out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100\\')
 
@@ -267,6 +267,9 @@ def main(**kwargs):
                     **dict(dropout_rate=0.3, kernel_length=256, num_filters1=64, depth_multiplier=8, num_filters2=128)}
         )
 
+        for model_name, params in param_updates.items():
+            model_params[model_name].update(params)
+
         model = cfg['model_cls'](**model_params[cfg['model_cls'].__name__])
 
         # train
@@ -304,6 +307,7 @@ def main(**kwargs):
                 accumulate_grad_batches=cfg["accumulate_grad_batches"],
                 precision=cfg["precision"],
                 gradient_clip_val=cfg["gradient_clip_val"],
+                enable_progress_bar=False,
             )
 
         trainer.fit(classif, train_dl, valid_dl)
@@ -339,34 +343,83 @@ if __name__ == '__main__':
         TIDNet
     ]
 
+    # model parameter updates
+    model_params_updates = [
+        # 1x
+        dict(ShallowFBCSPNet=dict(n_filters_time=40, filter_time_length=25, n_filters_spat=40,
+                                  pool_time_length=75, pool_time_stride=15),
+             Deep4Net=dict(n_filters_time=25, n_filters_spat=25, filter_time_length=10, n_filters_2=50,
+                           filter_length_2=10, n_filters_3=100, filter_length_3=10, n_filters_4=200,
+                           filter_length_4=10),
+             EEGInception=dict(n_filters=8, depth_multiplier=2),
+             EEGNetv4=dict(F1=8, D=2, F2=16, kernel_length=64, third_kernel_size=(8, 4)),
+             EEGResNet=dict(n_first_filters=16, final_pool_length=8, n_layers_per_block=2),
+             TIDNet=dict(s_growth=24, t_filters=32, temp_layers=2, spat_layers=2, bottleneck=3)),
+
+        # 2x
+        dict(ShallowFBCSPNet=dict(n_filters_time=80, filter_time_length=50, n_filters_spat=80,
+                                  pool_time_length=75, pool_time_stride=15),
+             Deep4Net=dict(n_filters_time=50, n_filters_spat=50, filter_time_length=10, n_filters_2=100,
+                           filter_length_2=10, n_filters_3=200, filter_length_3=10, n_filters_4=400,
+                           filter_length_4=10),
+             EEGInception=dict(n_filters=16, depth_multiplier=4),
+             EEGNetv4=dict(F1=16, D=2, F2=32, kernel_length=64, third_kernel_size=(8, 4)),
+             EEGResNet=dict(n_first_filters=32, final_pool_length=8, n_layers_per_block=4),
+             TIDNet=dict(s_growth=48, t_filters=64, temp_layers=4, spat_layers=4, bottleneck=6)),
+
+        # 4x
+        dict(ShallowFBCSPNet=dict(n_filters_time=160, filter_time_length=100, n_filters_spat=160,
+                                  pool_time_length=75, pool_time_stride=15),
+             Deep4Net=dict(n_filters_time=100, n_filters_spat=100, filter_time_length=10, n_filters_2=200,
+                           filter_length_2=10, n_filters_3=400, filter_length_3=10, n_filters_4=800,
+                           filter_length_4=10),
+             EEGInception=dict(n_filters=32, depth_multiplier=8),
+             EEGNetv4=dict(F1=32, D=2, F2=64, kernel_length=64, third_kernel_size=(8, 4)),
+             EEGResNet=dict(n_first_filters=64, final_pool_length=8, n_layers_per_block=8),
+             TIDNet=dict(s_growth=116, t_filters=128, temp_layers=8, spat_layers=8, bottleneck=12)),
+
+        # sensible ?
+        dict(ShallowFBCSPNet=dict(n_filters_time=128, filter_time_length=50, n_filters_spat=64,
+                                  pool_time_length=100, pool_time_stride=25),
+             Deep4Net=dict(n_filters_time=32, n_filters_spat=32, filter_time_length=20, n_filters_2=64,
+                           filter_length_2=20, n_filters_3=128, filter_length_3=20, n_filters_4=256,
+                           filter_length_4=20),
+             EEGInception=dict(n_filters=32, depth_multiplier=8),
+             EEGNetv4=dict(F1=32, D=2, F2=64, kernel_length=64, third_kernel_size=(8, 4)),
+             EEGResNet=dict(n_first_filters=32, final_pool_length=8, n_layers_per_block=4),
+             TIDNet=dict(s_growth=64, t_filters=64, temp_layers=4, spat_layers=4, bottleneck=8)),
+    ]
+
     # left out: TCN, SleepStager..., USleep, TIDNet
-    metricz = {}
-    fails = []
-    for model_cls in models_to_try:
-        try:  # TODO
-        # if True:
-            metrics = main(model_cls=model_cls, batch_size=8)
-            metricz[model_cls.__name__] = metrics
-            print('=' * 80, '\n', '=' * 80)
-            print(model_cls.__name__, '|', metrics)
-            print('=' * 80, '\n', '=' * 80)
-            pprint(metricz)
+    for update_i, updates in enumerate(model_params_updates):
+        metricz = {}
+        fails = []
 
-            plt.figure()
-            plt.imshow(metrics['confusion'].cpu().numpy())
-            plt.title(model_cls.__name__)
-            plt.show(block=False)
-        except Exception as e:
-            print(e, file=sys.stderr)
-            fails.append(model_cls.__name__)
+        for model_cls in models_to_try:
+            try:  # TODO
+            # if True:
+                metrics = main(model_cls=model_cls, batch_size=8, param_updates=updates)
+                metricz[model_cls.__name__] = metrics
+                print('=' * 80, '\n', '=' * 80)
+                print(update_i, model_cls.__name__, '|', metrics)
+                print('=' * 80, '\n', '=' * 80)
+                pprint(metricz)
 
-    model_names = list(metricz.keys())
-    min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
-    max_acc_i = np.argsort([m['max_acc'] for m in metricz.values()])[-1]
-    print('best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
-    print('best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])
-    print('fails:', fails, file=sys.stderr)
+                plt.figure()
+                plt.imshow(metrics['confusion'].cpu().numpy())
+                plt.title(f'{update_i}/{model_cls.__name__}')
+                # plt.show(block=False)
+            except Exception as e:
+                print(e, file=sys.stderr)
+                fails.append(model_cls.__name__)
 
-    plt.figure()
-    plt.imshow(metricz[model_names[max_acc_i]]['confusion'].cpu().numpy())
+        model_names = list(metricz.keys())
+        min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
+        max_acc_i = np.argsort([m['max_acc'] for m in metricz.values()])[-1]
+        print(f'{update_i} best val loss:', model_names[min_val_loss_i], metricz[model_names[min_val_loss_i]])
+        print(f'{update_i} best val acc:', model_names[max_acc_i], metricz[model_names[max_acc_i]])
+        print(f'{update_i} fails:', fails, file=sys.stderr)
+
+        plt.figure()
+        plt.imshow(metricz[model_names[max_acc_i]]['confusion'].cpu().numpy())
     plt.show()
