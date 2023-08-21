@@ -62,11 +62,11 @@ if __name__ == "__main__":
     # connect to unicorn
     deviceID = 0
     sfreq = 250
-    FrameLength = sfreq // 4
+    FrameLength = sfreq // 16
     TestsignaleEnabled = False
     model_name = 'braindecode_EEGResNet_2023-07-19_14-04-36'  # 'braindecode_EEGResNet_2023-07-19_14-04-36'  # 'braindecode_ShallowFBCSPNet_2023-07-18_18-47-49'
     dev = 'cuda'
-    pred_threshold = .7
+    pred_threshold = .5
 
     rec_len = 2000  # TODO
     epoch_len = 876  # take this from the dataset epoch length
@@ -76,10 +76,16 @@ if __name__ == "__main__":
     filter_percentile = None#95  # dataset property TODO
     tmin_max = (-1.5, 2.)  # epoch specific, check eeg_analysis or the experiment config
     crop_t = (-.2, None)  # should be same as in training script
+    thresholds = [.68, .75, .5]  #[.45, .54, .4]
+    stay_thresh = .6
+    diff_threshold = .3
 
     # TODO keverd bele open meg closed eye recordingokat trainingsetbe mint nothing
 
-    # TODO preprocessing
+    # TODO TEST:
+    #   better threshold
+    repeated_preds = np.zeros(4)
+    repeated_preds_over_threshold = np.zeros(4)
 
     numberOfAcquiredChannels = 17
     receiveBufferBufferLength = 0
@@ -132,7 +138,6 @@ if __name__ == "__main__":
     bandpass_freq = (1, 80)
     prep = TDomPrepper(rec_len, epoch_len, crop_len, sfreq, cfg['eeg_chans'], bandpass_freq, notch_freq, common=np.mean,
                        tmin_max=tmin_max, crop_t=crop_t, baseline=baseline, filter_percentile=filter_percentile)
-    # TODO !!!!!!!!!!!!!!!! TEST IS THIS IN ACTION
 
     # setup buffer
     eeg_buffer = CircBuff(rec_len, numberOfAcquiredChannels)
@@ -164,21 +169,39 @@ if __name__ == "__main__":
 
                 x = torch.as_tensor(epoch, device=dev, dtype=torch.float32)[None, ...]
                 y = model.infer(x)[0]
+                highest = np.argmax(y)
 
                 y = np.e ** y  # log prob to prob
-                if y[0] > 0.1:  # TODO predictions dropped 50% of the time when no percentile, why
-                    highest = 0
-                elif y[1] > .85:
-                    highest = 1
-                else:
-                    highest = 2  # TODO rm
+                # if y[0] > 0.1:  # TODO predictions dropped 50% of the time when no percentile, why
+                #     highest = 0
+                # elif y[1] > .85:
+                #     highest = 1
+                # else:
+                #     highest = 2  # TODO rm
 
-                # highest = np.argmax(y)
-                # print(y)
-                if y[highest] > pred_threshold:
+                repeated_preds[highest] += 1  # TODO
+                fuck = np.ones_like(y, dtype=bool)
+                fuck[highest] = False
+                if y[-1] > stay_thresh:
+                    continue
+                if y[highest] > thresholds[highest]: #and y[highest] - diff_threshold > y[fuck].max():  #pred_threshold:
+                    repeated_preds_over_threshold[highest] += 1  # TODO
+
                     msg = events_to_msgs[cls_to_events[highest]]
                     sender.send_msg(msg)
                     print(f'{y}; sent: {msg}', file=sys.stderr)
+
+                    if repeated_preds_over_threshold[highest] >= 3:
+                        # msg = events_to_msgs[cls_to_events[highest]]
+                        # sender.send_msg(msg)
+                        # print(f'{y}; sent: {msg}', file=sys.stderr)
+
+                        if highest in (0, 1):
+                            repeated_preds_over_threshold[[0, 1]] = 0
+                        elif highest == 2:
+                            repeated_preds_over_threshold[2] = 0
+                        repeated_preds[highest] *= 0
+                        # repeated_preds_over_threshold[highest] *= 0
             else:
                 print(eeg_buffer.count)
 
