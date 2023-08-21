@@ -32,6 +32,7 @@ from skimage.transform import resize
 from scipy.signal import resample
 from torch.utils.data.sampler import SubsetRandomSampler
 from typing import List
+import matplotlib.pyplot as plt
 
 from eeg_analysis import TDomPrepper
 
@@ -142,14 +143,16 @@ class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task,
 
 class MomentaryEEGTimeDomainDataset(IterableDataset):
 
-    def __init__(self, streams_path, meta_path, cfg, epoch_len,
-                 ret_likeliest_gamepad: float = None, max_samples=500, is_trial_chance=.85):
+    def __init__(self, streams_path, meta_path, cfg, epoch_len, session_slice=None, ret_pulled_at_last_gamepad=False,
+                 ret_likeliest_gamepad: float = 0., max_samples=500, is_trial_chance=.75, pulled_balance=.75):
         super().__init__()
         self.epoch_len = epoch_len
         # if not None, defines the portion of the gamepad signal to be >.5, for that gamepad btn to be classified as 1
         self.ret_likeliest_gamepad = ret_likeliest_gamepad  # None | (0, 1]
+        self.ret_pulled_at_last_gamepad = ret_pulled_at_last_gamepad
         self.max_samples = max_samples
         self.is_trial_chance = is_trial_chance
+        self.pulled_balance = pulled_balance
         # filt eeg, zscore -> rnd slice -> [TDomPrepper(NOTHING)] -> train
 
         streams_data = h5py.File(streams_path, 'r')
@@ -158,6 +161,10 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
         eeg_info = meta_data['eeg_info']
         self.session_ids = meta_data['session_ids']
 
+        # slice session ids (train/test)
+        if session_slice is not None:
+            self.session_ids = self.session_ids[session_slice]
+
         # get time indices for each session of valid ranges from where to slice
         # open-eye (101-201), from the first until the last "baseline" event (110)
         events = np.asarray(streams_data['events'])
@@ -165,8 +172,12 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
         self.open_eye_starts, self.open_eye_ends = {}, {}
         self.trial_starts, self.trial_ends = {}, {}
 
+        sessions_to_rm = []
         for sess in self.session_ids:
             sess_events = events[event_session_idx == sess]
+            if len(sess_events) == 0:  # TODO weird stuff going on in some sessions (2 so far), or meta_data['session_ids'] is off
+                sessions_to_rm.append(sess)
+                continue
             open_eye_start_i = np.where(sess_events[:, 2] == 101)[0][0]
             open_eye_end_i = np.where(sess_events[:, 2] == 201)[0][0]
             self.open_eye_starts[sess] = sess_events[open_eye_start_i, 0]
@@ -176,6 +187,25 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             trials_end_i = np.where(sess_events[:, 2] == 110)[0][-1]
             self.trial_starts[sess] = trials_start_i
             self.trial_ends[sess] = trials_end_i
+
+        self.session_ids = [sid for sid in self.session_ids if sid not in sessions_to_rm]
+
+        # get timepoints when gamepad L2, R2 were pulled
+        # imaginary_sessions = []
+        self.gamepad_pulled_idx = {}
+        for sess in self.session_ids:
+            gamepad_pulled = streams_data[f'gamepad_{sess}'][[4, 5], :].max(axis=0)
+            gamepad_pulled = np.where(gamepad_pulled)[0]
+            if self.ret_pulled_at_last_gamepad:
+                # gamepad_pulled = np.unique(np.concatenate([gamepad_pulled - int(epoch_len * (1. - self.ret_likeliest_gamepad)),
+                #                                            gamepad_pulled]))
+                gamepad_pulled = gamepad_pulled - epoch_len - 10  # int(epoch_len * (1. - self.ret_likeliest_gamepad))
+            else:
+                gamepad_pulled = np.unique(np.concatenate([gamepad_pulled - int(epoch_len * (1. - self.ret_likeliest_gamepad)),
+                                                           gamepad_pulled]))
+            # if not gamepad_pulled.any():
+            #     imaginary_sessions.append(sess)
+            self.gamepad_pulled_idx[sess] = gamepad_pulled
 
         # pick channels
         self.relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
@@ -188,6 +218,8 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
             self.z_stds[sess] = np.std(streams_data[f'filt_raw_eeg_{sess}'], axis=1, keepdims=True)
 
         self.streams_data = streams_data
+        self.anyad = 0
+        self.count=0
 
         # prep = TDomPrepper(epochs.shape[-1], eeg_info['sfreq'], cfg['eeg_chans'], meta_data['bandpass_freq'],
         #                    (50, 100), np.mean, meta_data['on_task_times'][[0, -1]], cfg['crop_t'],
@@ -198,15 +230,31 @@ class MomentaryEEGTimeDomainDataset(IterableDataset):
         for _ in range(self.max_samples):
             sess = np.random.choice(self.session_ids)
             is_trial = np.random.random() < self.is_trial_chance
-            start_interval = (self.trial_starts[sess], self.trial_ends[sess] - self.epoch_len) if is_trial else \
-                (self.open_eye_starts[sess], self.open_eye_ends[sess] - self.epoch_len)
-            start_i = np.random.randint(*start_interval)
+            is_pulled = np.random.random() < self.pulled_balance  # TODO
+            eye_start_interval = (self.open_eye_starts[sess], self.open_eye_ends[sess] - self.epoch_len)
+            trial_start_interval = (self.trial_starts[sess], self.trial_ends[sess] - self.epoch_len)
+
+            if not is_trial and not is_pulled:  # eye open
+                start_i = np.random.randint(*eye_start_interval)
+            elif is_trial and not is_pulled:
+                start_i = np.random.randint(*trial_start_interval)
+            else:  # is_pulled
+                start_i = np.random.choice(self.gamepad_pulled_idx[sess])
             end_i = start_i + self.epoch_len
 
             eeg = np.asarray(self.streams_data[f'filt_raw_eeg_{sess}'][self.relevant_chans_i, start_i:end_i])
             gamepad = np.asarray(self.streams_data[f'gamepad_{sess}'][[4, 5], start_i:end_i])  # L2, R2
-            if self.ret_likeliest_gamepad is not None:
+            if self.ret_likeliest_gamepad is not None and self.ret_pulled_at_last_gamepad:
+                gamepad = ((np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad) &
+                           (gamepad[:, -1] > .5)).astype(np.float32)
+            elif self.ret_likeliest_gamepad is not None:
                 gamepad = (np.mean(gamepad > .5, axis=1) > self.ret_likeliest_gamepad).astype(np.float32)
+            elif self.ret_pulled_at_last_gamepad:
+                gamepad = (gamepad[:, -1] > .5).astype(np.float32)
+
+            if is_pulled and gamepad.max() == 0:
+                self.anyad += 1
+            self.count += 1
 
             yield eeg, gamepad
 
