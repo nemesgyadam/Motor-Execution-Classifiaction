@@ -115,8 +115,10 @@ band_names = ['delta_idx', 'theta_idx', 'alpha_idx', 'alpha1_idx', 'alpha2_idx',
 # names = ['powerz_arithmetic_meditation', 'powerz_arithmetic_viktor',
 #          'powerz_eye_closed_arithmetic', 'powerz_eye_open_nothing']
 
-names = ['powerz_gyozo_eye_closed_arithmetic', 'powerz_gyozo_eye_closed_meditation',
-         'powerz_gyozo_eye_closed_nothing', 'powerz_gyozo_feedback_eye_closed_meditation']
+# names = ['powerz_gyozo_eye_closed_arithmetic', 'powerz_gyozo_eye_closed_meditation',
+#          'powerz_gyozo_eye_closed_nothing', 'powerz_gyozo_feedback_eye_closed_meditation']
+names = ['powerz_gyozo2_feedback_eye_closed_arithmetic', 'powerz_gyozo2_feedback_eye_closed_meditation',
+         'powerz_gyozo2_feedback_eye_open_meditation', 'powerz_gyozo2_feedback_eye_closed_nothing']
 # names = ['powerz_reka_eye_closed_arithmetic', 'powerz_reka_eye_closed_meditation',
 #          'powerz_reka_eye_closed_nothing', 'powerz_reka_feedback_eye_closed_meditation_real_feedback']
 

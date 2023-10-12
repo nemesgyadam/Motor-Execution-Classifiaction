@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from cross_attn import Attention
+from .cross_attn import Attention
 
 
 class BasicTransformerBlock(nn.Module):

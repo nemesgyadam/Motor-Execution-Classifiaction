@@ -28,6 +28,7 @@ import torchmetrics
 import random
 import wandb
 from pprint import pprint
+from src.models.AdamVikNet import ErdsBandsNet
 
 from data_gen import *
 from train_tdom import BrainDecodeClassification, GatherMetrics
@@ -37,29 +38,31 @@ def main(**kwargs):
 
     cfg = dict(
         subject='0717b399',
-        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100',
+        data_ver='out_bl-1--0.05_tfr-multitaper-percent_reac-0.7_bad-95_f-2-40-100',
 
         # {'left': 0, 'right': 1},  #  {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
         events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        eeg_chans=['C3', 'C4', 'Cz'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'Cz', 'C4']
+        eeg_chans=['C3', 'Cz', 'C4'],  # ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'], ['C3', 'Cz', 'C4']
         crop_t=(-.2, None),
-        rm_cz=True,
-        erds_bands=None, #[(4, 7), (7, 13), (13, 40)],  # None | [(min_hz, max_hz), ...]
+        rm_cz=False,
+        erds_bands=[(4, 7), (8, 13), (13, 20), (20, 30), (20, 30), (30, 45)],  # None | [(min_hz, max_hz), ...]
         merge_bands_into_chans=True,
         resize_t=None,  # resize time dim
         resize_f=None,  # resize freq dim
+        center_mean_at_0=False,
 
         batch_size=8,
         num_workers=0,
         prefetch_factor=2,
         accumulate_grad_batches=1,
         precision=32,
-        gradient_clip_val=1,
+        gradient_clip_val=5,
         loss_fun=NLLLoss,
         n_fold=None,  # number of times to randomly re-split train and valid
         leave_k_out=1,  # number of sessions to use as validation in k-fold cross-valid
         reduce_lr_patience=3,
         early_stopping_patience=12,
+        is_momentary=False,
 
         model_cls=ShallowFBCSPNet,
         # input_window_samples=100,   # TODO set to epoch len now
@@ -70,7 +73,7 @@ def main(**kwargs):
         multi_dev_strat=None,
 
         epochs=100,
-        init_lr=1e-3,
+        init_lr=5e-4,
         train_data_ratio=.85,
     )
     cfg.update(kwargs)
@@ -86,9 +89,10 @@ def main(**kwargs):
     data = EEGTfrDomainDataset(streams_path, meta_path, cfg)
 
     # RGB spectrograms
-    imgs = np.transpose(data.epochs, (0, 2, 3, 1))
-    normed_imgs = (imgs - imgs.min(axis=0, keepdims=True)) / \
-                  (imgs.max(axis=0, keepdims=True) - imgs.min(axis=0, keepdims=True))
+    if len(data.epochs.shape) == 4:
+        imgs = np.transpose(data.epochs, (0, 2, 3, 1))
+        normed_imgs = (imgs - imgs.min(axis=0, keepdims=True)) / \
+                      (imgs.max(axis=0, keepdims=True) - imgs.min(axis=0, keepdims=True))
 
     # # plots
     # cls_to_event = {v: k for k, v in cfg['events_to_cls'].items()}
@@ -115,7 +119,7 @@ def main(**kwargs):
     min_val_losses, max_val_accs = [], []
     # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
     split_i = 0
-    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 13), valid_session_idx=np.arange(13, 15))
+    train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))  # 13-15 imaginary
     if True:  # TODO !!! rm
         print('-' * 80, '\n', f'SPLIT #{split_i:03d}', '\n', '-' * 80)
 
@@ -143,6 +147,7 @@ def main(**kwargs):
             HybridNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws),
             EEGResNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws, n_first_filters=16, final_pool_length=8),
             TIDNet=dict(in_chans=in_chans, n_classes=n_classes, input_window_samples=iws),
+            ErdsBandsNet=dict(cfg=cfg),
         )
 
         model = cfg['model_cls'](**model_params[cfg['model_cls'].__name__])
@@ -199,15 +204,16 @@ if __name__ == '__main__':
     torch.use_deterministic_algorithms(True)
 
     models_to_try = [
-        ShallowFBCSPNet,
-        Deep4Net,
-        EEGInception,
-        EEGITNet,
-        EEGNetv1,
-        EEGNetv4,
-        HybridNet,
-        EEGResNet,
-        TIDNet
+        ErdsBandsNet,
+        # ShallowFBCSPNet,
+        # Deep4Net,
+        # EEGInception,
+        # EEGITNet,
+        # EEGNetv1,
+        # EEGNetv4,
+        # HybridNet,
+        # EEGResNet,
+        # TIDNet
     ]
 
     # left out: TCN, SleepStager..., USleep, TIDNet
@@ -216,7 +222,7 @@ if __name__ == '__main__':
     for model in models_to_try:
         # try:
         if True:
-            metrics = main(model_cls=model, batch_size=8)
+            metrics = main(model_cls=model)
             metricz[model.__name__] = metrics
             print('=' * 80, '\n', '=' * 80)
             print(model.__name__, '|', metrics)

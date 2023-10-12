@@ -375,7 +375,7 @@ class EEGTfrDomainDataset(Dataset):
 
         # by channel (across trials and time) standardization TODO validation normalization leaks into training
         std_over = (0, 2, 3) if cfg['erds_bands'] is None else (0, 2)
-        means = epochs.mean(axis=std_over, keepdims=True)
+        means = 0 if cfg['center_mean_at_0'] else epochs.mean(axis=std_over, keepdims=True)
         stds = epochs.std(axis=std_over, keepdims=True)  # self.epochs.std(axis=-1, keepdims=True)
         epochs = (epochs - means) / stds  # normalized already
 

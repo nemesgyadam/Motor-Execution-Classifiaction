@@ -66,7 +66,7 @@ class BrainDecodeClassification(L.LightningModule):
         self.confusion = torchmetrics.ConfusionMatrix('multiclass', num_classes=self.num_classes)
         # self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
 
-        self.model.requires_grad_(True)
+        # self.model.requires_grad_(True)
         print(self.model)
 
     def training_step(self, batch, batch_idx):
