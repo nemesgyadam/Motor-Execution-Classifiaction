@@ -1101,17 +1101,24 @@ def main(
                               norm_c34_w_cz, verbose, 'break')
 
 
+def get_sessions(data_path='../recordings', subj_prefix='sub-'):
+    # subject names without sub- (or whatever) prefix like ['0717b399', 'a9223e93']
+    subjects = [os.path.basename(s)[len(subj_prefix):] for s in glob(f'{data_path}/{subj_prefix}*')]
+    sessions = [sorted([int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/{subj_prefix}{subj}/ses-*')])
+                for subj in subjects]
+    return subjects, sessions
+
+
 if __name__ == '__main__':
 
     data_path = '../recordings'
-    subjects = [os.path.basename(s)[4:] for s in glob(f'{data_path}/sub-*')]  # like ['0717b399', 'a9223e93']
-    sessions = [sorted([int(os.path.basename(sess)[5:]) for sess in glob(f'{data_path}/sub-{subj}/ses-*')])
-                for subj in subjects]
+    subjects, sessions = get_sessions(data_path)
+    rerun_preproc = False
 
     for subject, sess_ids in zip(subjects, sessions):
         is_imaginary = np.zeros(len(sess_ids), dtype=bool)
         if subject == '0717b399':  # has motor imaginary
             is_imaginary[[-1, -2]] = True
 
-        main(subject=subject, session_ids=sess_ids, rerun_proc=True, norm_c34_w_cz=True, do_plot=False,
+        main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=False,
              reaction_tmax=.6, is_imaginary=is_imaginary)
