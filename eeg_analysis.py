@@ -943,6 +943,7 @@ def main(
     combined_anal_channels=('C3', 'Cz', 'C4'),  # only affects the combined plots, defines the channels to show
     norm_c34_w_cz=False,  # whether to remove the time frequency signal of Cz from C3 and C4, only when plotting
     is_imaginary=None,
+    rerun_analysis=True,
 ):
 
     assert bandpass_freq[0] <= freq_rng[0] and freq_rng[1] <= bandpass_freq[1]
@@ -960,7 +961,9 @@ def main(
     # conservatively high freq (and low time) resolution by default
     n_cycles = (np.log(freqs) * 2 + 2).astype(np.int32) if n_cycles is None else n_cycles
 
+    processed = False
     if not os.path.isfile(streams_path) or rerun_proc:
+        processed = True
 
         # prepare h5 dataset: combined raw, epochs, gamepad streams
         streams_data = h5py.File(streams_path, 'w')
@@ -1093,12 +1096,13 @@ def main(
             pickle.dump(meta_data, f)
 
     # analysis, plots generated from all the sessions of one subject
-    combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
-                              norm_c34_w_cz, verbose, 'task')
-    combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
-                              norm_c34_w_cz, verbose, 'pull')
-    combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
-                              norm_c34_w_cz, verbose, 'break')
+    if processed or rerun_analysis:
+        combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
+                                  norm_c34_w_cz, verbose, 'task')
+        combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
+                                  norm_c34_w_cz, verbose, 'pull')
+        combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
+                                  norm_c34_w_cz, verbose, 'break')
 
 
 def get_sessions(data_path='../recordings', subj_prefix='sub-'):
@@ -1114,11 +1118,12 @@ if __name__ == '__main__':
     data_path = '../recordings'
     subjects, sessions = get_sessions(data_path)
     rerun_preproc = False
+    rerun_analysis = False
 
     for subject, sess_ids in zip(subjects, sessions):
         is_imaginary = np.zeros(len(sess_ids), dtype=bool)
         if subject == '0717b399':  # has motor imaginary
             is_imaginary[[-1, -2]] = True
 
-        main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=False,
-             reaction_tmax=.6, is_imaginary=is_imaginary)
+        main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=True,
+             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis)
