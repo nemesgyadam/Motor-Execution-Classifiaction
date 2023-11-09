@@ -6,8 +6,10 @@ import struct
 import numpy as np
 import matplotlib.pyplot as plt
 import mne
+import scipy.stats as stats
 from scipy.signal import find_peaks
 from scipy.interpolate import interp1d
+from sklearn.utils import resample
 from copy import deepcopy
 import json
 from mi_sanity import gen_erds_plots
@@ -781,11 +783,27 @@ def pad_2d_to_max_length(arr_list):  # chatgpt
     return padded_arr_list
 
 
-def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show_std=True):
+def bootstrap_confidence_interval(data, n_bootstraps=1000, ci=95):
+    # Store the means from each bootstrap
+    bootstrap_means = np.zeros((n_bootstraps, data.shape[1]))
 
-    # TODO any smoothing?
+    # Generate bootstraps
+    for i in range(n_bootstraps):
+        # Sample with replacement from the data
+        sample = resample(data)
+        # Compute the mean of the bootstrap sample
+        bootstrap_means[i] = np.mean(sample, axis=0)
 
-    # TODO !!! LIMIT CROSS-CORRELATION SHIFT AMOUNT !!!
+    # Compute the percentiles for the confidence interval
+    lower_bounds = np.percentile(bootstrap_means, (100 - ci) / 2, axis=0)
+    upper_bounds = np.percentile(bootstrap_means, 100 - (100 - ci) / 2, axis=0)
+
+    return lower_bounds, upper_bounds
+
+
+def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show_std=True, max_shift=.6):
+
+    # TODO LIMIT CROSS-CORRELATION SHIFT AMOUNT
 
     fig, axes = plt.subplots(len(fois), len(channels), figsize=(8 * len(channels), len(fois) * 7))
     colors = cm.rainbow(np.linspace(0, 1, len(event_ids)))
@@ -802,14 +820,21 @@ def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show
                                     for ch_i in range(len(channels))]), axis=1)
                 times = np.arange(tfr_f_ev.shape[-1])
 
-            tfr_f_ev_mean = np.nanmean(tfr_f_ev, axis=0)
-            tfr_f_ev_std = np.nanstd(tfr_f_ev, axis=0)
+            tfr_f_ev_mean = np.nanmean(tfr_f_ev, axis=0)  # TODO it throws a warning here sometimes: RuntimeWarning: Mean of empty slice; capture the warning: https://stackoverflow.com/questions/15933741/how-do-i-catch-a-numpy-warning-like-its-an-exception-not-just-for-testing
+            # tfr_f_ev_std = np.nanstd(tfr_f_ev, axis=0)
+            conf_interval = [bootstrap_confidence_interval(tfr_f_ev[:, ch_i, :], n_bootstraps=200, ci=95)
+                             for ch_i in range(tfr_f_ev.shape[1])]
+            conf_interval = np.stack(conf_interval, axis=1)
+            # tfr_f_ev_sem = stats.sem(tfr_f_ev, axis=0)  # TODO maybe try this one too, without bootstrapping
+            # conf_interval = stats.t.interval(0.95, tfr_f_ev.shape[0] - 1, loc=tfr_f_ev_mean, scale=tfr_f_ev_sem)
 
             for ch_i, ch in enumerate(channels):
                 if show_std:
-                    axes[foi_i, ch_i].fill_between(times, tfr_f_ev_mean[ch_i] - tfr_f_ev_std[ch_i],
-                                                   tfr_f_ev_mean[ch_i] + tfr_f_ev_std[ch_i],
-                                                   alpha=.3, color=colors[ev_i])
+                    # axes[foi_i, ch_i].fill_between(times, tfr_f_ev_mean[ch_i] - tfr_f_ev_std[ch_i],
+                    #                                tfr_f_ev_mean[ch_i] + tfr_f_ev_std[ch_i],
+                    #                                alpha=.3, color=colors[ev_i])
+                    axes[foi_i, ch_i].fill_between(times, conf_interval[0, ch_i], conf_interval[1, ch_i],
+                                                   color=colors[ev_i], alpha=0.3)
                 label = event if ch_i == 0 else '_nolegend_'
                 axes[foi_i, ch_i].plot(times, tfr_f_ev_mean[ch_i], label=label, alpha=.85, color=colors[ev_i])
                 axes[foi_i, ch_i].set_ylim(ylim)

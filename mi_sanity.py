@@ -252,7 +252,7 @@ def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=
     df['channel'] = df['channel'].cat.reorder_categories(channels, ordered=True)
 
     g = sns.FacetGrid(df, row='band', col='channel', margin_titles=True)
-    g.map(sns.lineplot, 'time', 'value', 'condition', n_boot=10)
+    g.map(sns.lineplot, 'time', 'value', 'condition', n_boot=200)
     axline_kw = dict(color='black', linestyle='dashed', linewidth=0.5, alpha=0.5)
     g.map(plt.axhline, y=0, **axline_kw)
     g.map(plt.axvline, x=0, **axline_kw)
