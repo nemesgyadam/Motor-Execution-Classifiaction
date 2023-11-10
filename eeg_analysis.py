@@ -477,7 +477,8 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
     num_succ = [(all_events[:, 2] == ev).sum() for ev in [left_success_marker, right_success_marker, lr_success_marker,
                                                           nothing_success_marker, break_success_marker]]
     print('num of events successful/originally:',
-          {name: f'{nsucc}/{nold}' for name, nold, nsucc in zip(['left', 'right', 'left-right', 'nothing'], num_orig, num_succ)})
+          {name: f'{nsucc}/{ntotal}' for name, ntotal, nsucc in zip(['left', 'right', 'left-right', 'nothing'], num_orig, num_succ)})
+    pull_success_stat = {name: (nsucc, ntotal) for name, ntotal, nsucc in zip(['left', 'right', 'left-right', 'nothing'], num_orig, num_succ)}
 
     # order events
     all_events = all_events[np.argsort(all_events[:, 0]), :]
@@ -496,7 +497,8 @@ def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                                  'right-pull': right_success_pull_marker, 'left-right-pull': lr_success_pull_marker},
                 filt_raw_eeg=filt_raw_eeg, gamepad=gamepad, events=all_events, event_dict=event_dict,
                 eeg_info=eeg_info, freqs=freqs, eeg_ch_names=eeg_ch_names,
-                event_session_idx=np.repeat(session, all_events.shape[0]))
+                event_session_idx=np.repeat(session, all_events.shape[0]), pull_success_stat=pull_success_stat,
+                pull_delay=(left_success[1], right_success[1]))
 
 
 def epoch_on_task(sess_id: int, prep_results: dict, exp_cfg_path, freqs, baseline=(None, 0), tfr_mode='cwt',
@@ -986,9 +988,9 @@ def main(
     # conservatively high freq (and low time) resolution by default
     n_cycles = (np.log(freqs) * 2 + 2).astype(np.int32) if n_cycles is None else n_cycles
 
-    processed = False
+    has_run_proc = False
     if not os.path.isfile(streams_path) or rerun_proc:
-        processed = True
+        has_run_proc = True
 
         # prepare h5 dataset: combined raw, epochs, gamepad streams
         streams_data = h5py.File(streams_path, 'w')
@@ -1017,7 +1019,7 @@ def main(
         # num_epochs = []
         meta_names = ['eeg_info', 'event_dict', 'on_task_times', 'task_event_ids', 'break_event_ids', 'eeg_ch_names',
                       'pull_event_ids', 'on_pull_times', 'on_break_times', 'task_baseline', 'pull_baseline',
-                      'break_baseline']
+                      'break_baseline', 'pull_success_stat', 'pull_delay']
         meta_data = {name: None for name in meta_names}
         meta_data['iafs'] = []  # individual alpha freq for each session
         meta_data['baseline'] = baseline
@@ -1121,7 +1123,7 @@ def main(
             pickle.dump(meta_data, f)
 
     # analysis, plots generated from all the sessions of one subject
-    if processed or rerun_analysis:
+    if has_run_proc or rerun_analysis:
         combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
                                   norm_c34_w_cz, verbose, 'task')
         combined_session_analysis(subject, streams_path, meta_path, output_path, combined_anal_channels,
@@ -1147,7 +1149,7 @@ if __name__ == '__main__':
 
     for subject, sess_ids in zip(subjects, sessions):
         is_imaginary = np.zeros(len(sess_ids), dtype=bool)
-        if subject == '0717b399':  # has motor imaginary
+        if subject == '0717b399' and len(sess_ids) == 14:  # has motor imaginary (#13 and #14)
             is_imaginary[[-1, -2]] = True
 
         main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=True,
