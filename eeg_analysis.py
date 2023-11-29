@@ -803,6 +803,45 @@ def bootstrap_confidence_interval(data, n_bootstraps=1000, ci=95):
     return lower_bounds, upper_bounds
 
 
+def plot_erds_raw(erdss: dict, event_ids_list, band_names, channels, freqs, times, show_conf=True):
+    fig, axes = plt.subplots(len(band_names), len(channels), figsize=(8 * len(channels), len(band_names) * 7))
+    colors = cm.rainbow(np.linspace(0, 1, len(event_ids_list)))
+
+    ylim = [-1, 1.5]
+
+    for foi_i, band_name in enumerate(band_names):  # freq rng of interest
+
+        for ev_i, event in enumerate(event_ids_list):
+            tfr_f_ev = erdss[event][band_name]
+            tfr_f_ev_mean = np.nanmean(tfr_f_ev, axis=0)
+            conf_interval = [bootstrap_confidence_interval(tfr_f_ev[:, ch_i, :], n_bootstraps=200, ci=95)
+                             for ch_i in range(tfr_f_ev.shape[1])]
+            conf_interval = np.stack(conf_interval, axis=1)
+            # tfr_f_ev_sem = stats.sem(tfr_f_ev, axis=0)  # TODO without bootstrapping
+            # conf_interval = stats.t.interval(0.95, tfr_f_ev.shape[0] - 1, loc=tfr_f_ev_mean, scale=tfr_f_ev_sem)
+
+            for ch_i, ch in enumerate(channels):
+                if show_conf:
+                    axes[foi_i, ch_i].fill_between(times, conf_interval[0, ch_i], conf_interval[1, ch_i],
+                                                   color=colors[ev_i], alpha=0.3)
+                label = event if ch_i == 0 else '_nolegend_'
+                axes[foi_i, ch_i].plot(times, tfr_f_ev_mean[ch_i], label=label, alpha=.85, color=colors[ev_i])
+                axes[foi_i, ch_i].set_ylim(ylim)
+                if ev_i == 0:
+                    axes[foi_i, ch_i].axvline([0], *ylim, color='black')
+                    low_cf, high_cf = np.percentile(tfr_f_ev, [10, 90])
+                    axes[foi_i, ch_i].axhline([low_cf], times[0], times[-1], color='gray')
+                    axes[foi_i, ch_i].axhline([high_cf], times[0], times[-1], color='gray')
+                if foi_i == 0:
+                    axes[foi_i, ch_i].set_title(ch)
+                if ch_i == 0:
+                    axes[foi_i, ch_i].set_ylabel(band_name)
+                if foi_i == 0 and ev_i == len(event_ids_list) - 1 and ch_i == 0:
+                    fig.legend(loc='lower center', ncols=len(event_ids_list))
+
+    return fig
+
+
 def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show_std=True, max_shift=.6):
 
     # TODO LIMIT CROSS-CORRELATION SHIFT AMOUNT
@@ -1142,7 +1181,7 @@ def get_sessions(data_path='../recordings', subj_prefix='sub-'):
     return subjects, sessions
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # TODO rerun
 
     data_path = '../recordings'
     subjects, sessions = get_sessions(data_path)
@@ -1155,4 +1194,4 @@ if __name__ == '__main__':
             is_imaginary[[-1, -2]] = True
 
         main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=True,
-             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis)
+             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis, tfr_baseline_mode='logratio')  # TODO logratio

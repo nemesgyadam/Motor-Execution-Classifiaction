@@ -9,7 +9,7 @@ from tqdm import tqdm
 from matplotlib.colors import TwoSlopeNorm
 from eeg_analysis import get_sessions
 
-from eeg_analysis import plot_erds
+from eeg_analysis import plot_erds, plot_erds_raw
 
 
 def concat_tfr_epochs(epochs_list: list, eeg_info, times, freqs, event_ids):
@@ -103,6 +103,7 @@ def main(part='task'):  # task | pull
     channels = ('C3', 'Cz', 'C4')
     eid_map = {'left': 'left', 'right': 'right', 'left-pull': 'left', 'right-pull': 'right',
                'left-right': 'left-right', 'left-right-pull': 'left-right', 'nothing': 'nothing'}
+    recompute_grping = False
 
     iafs = {}
     handedness_tfr = {'L': [], 'R': []}
@@ -113,82 +114,111 @@ def main(part='task'):  # task | pull
     gender_subj = {'f': [], 'm': []}
     famil_tfr = {'couple times': [], 'regular': []}
     famil_subj = {'couple times': [], 'regular': []}
+
+    handedness_erds = {'L': [], 'R': []}
+    age_erds = {'lt-25': [], 'gt-25': []}
+    gender_erds = {'f': [], 'm': []}
+    famil_erds = {'couple times': [], 'regular': []}
     eeg_info, freqs, times, event_ids = None, None, None, None
 
-    for subj, sess in tqdm(zip(subjects, sessions), 'subjects', total=len(subjects)):
-        epochs, tfr_epochs, eeg_info, freqs, times, on_events, edited_on_events, event_ids, iaf = \
-            load_subject_prep_data(prep_data_path, subj, part, channels)
-        iafs[subj] = iaf
-        # if not ('left' in event_ids and 'right' in event_ids):
-        #     print('!' * 30, 'SKIPPING SUBJECT: ', subj, '!' * 30, file=sys.stderr)
-        #     print('event ids:', event_ids, file=sys.stderr)
-        #     continue
+    if recompute_grping:
+        for subj, sess in tqdm(zip(subjects, sessions), 'subjects', total=len(subjects)):
+            epochs, tfr_epochs, eeg_info, freqs, times, on_events, edited_on_events, event_ids, iaf = \
+                load_subject_prep_data(prep_data_path, subj, part, channels)
+            iafs[subj] = iaf
+            # if not ('left' in event_ids and 'right' in event_ids):
+            #     print('!' * 30, 'SKIPPING SUBJECT: ', subj, '!' * 30, file=sys.stderr)
+            #     print('event ids:', event_ids, file=sys.stderr)
+            #     continue
 
-        subj_rows = exps.loc[exps['ParticipantID'] == subj]
-        first_row = subj_rows.iloc[0]
+            subj_rows = exps.loc[exps['ParticipantID'] == subj]
+            first_row = subj_rows.iloc[0]
 
-        handedness = first_row['LRHandedness']
-        age = first_row['Age']
-        age_str = 'lt-25' if age < 25 else 'gt-25'
-        gender = first_row['Gender']
-        famil = first_row['GamepadFamiliarity']
-        avgs = {eid_map[eid]: tfr_epochs[eid].average() for eid in event_ids.keys()}
+            # IAF
+            # https://neuroscenter.com/wp-content/uploads/2022/07/Individual-Alpha-Peak-Frequency-an-Important-Biomarker-for-Live-Z-Score-Training-Neurofeedback-in-Adolescents-with-Learning-Disabilities.pdf
+            iaf_ok = iaf if 7.5 < iaf < 12 else 10
+            if iaf_ok != iaf:
+                print(f'IAF({iaf}) is off for subject {subj}', file=sys.stderr)
 
-        if handedness in handedness_tfr:
-            handedness_tfr[handedness].append(avgs)
-            handedness_subj[handedness].append(subj)
-        if age in age_tfr:
-            age_tfr[age_str].append(avgs)
-            age_subj[age_str].append(subj)
-        if gender in gender_tfr:
-            gender_tfr[gender].append(avgs)
-            gender_subj[gender].append(subj)
-        if famil in famil_tfr:
-            famil_tfr[famil].append(avgs)
-            famil_subj[famil].append(subj)
+            # frequencies of interest
+            # fois = {'theta': (4, 7), 'wide_mu': (iaf - 2, iaf + 2), 'tight_mu': (iaf - 1, iaf + 1),
+            #         'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24),
+            #         'wide_gamma': (30, 48), 'low_gamma': (25, 40), 'high_gamma': (40, 48)}
+            # fois = {'wide_mu': (iaf - 2, iaf + 2), 'tight_mu': (iaf - 1, iaf + 1),
+            #         'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24)}
 
-        # https://neuroscenter.com/wp-content/uploads/2022/07/Individual-Alpha-Peak-Frequency-an-Important-Biomarker-for-Live-Z-Score-Training-Neurofeedback-in-Adolescents-with-Learning-Disabilities.pdf
-        iaf_ok = iaf if 7.5 < iaf < 12 else 10
-        if iaf_ok != iaf:
-            print(f'IAF({iaf}) is off for subject {subj}', file=sys.stderr)
+            # from intro of: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6381427/
+            fois = {'theta-delta': (2, 7),
+                    'low_alpha': (iaf_ok - 3, iaf_ok), 'high_alpha': (iaf_ok, iaf_ok + 3),
+                    'alpha': (iaf_ok - 3, iaf_ok + 3),
+                    'low_beta': (13, 20), 'mid_beta': (18, 25), 'high_beta': (25, 35)}
+            bands = {fname: (f0 <= freqs) & (freqs <= f1) for fname, (f0, f1) in fois.items()}
 
-        # plot ERDS
-        # fois = {'theta': (4, 7), 'wide_mu': (iaf - 2, iaf + 2), 'tight_mu': (iaf - 1, iaf + 1),
-        #         'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24),
-        #         'wide_gamma': (30, 48), 'low_gamma': (25, 40), 'high_gamma': (40, 48)}
-        # fois = {'wide_mu': (iaf - 2, iaf + 2), 'tight_mu': (iaf - 1, iaf + 1),
-        #         'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24)}
+            # setup groupings
+            handedness = first_row['LRHandedness']
+            age = first_row['Age']
+            age_str = 'lt-25' if age < 25 else 'gt-25'
+            gender = first_row['Gender']
+            famil = first_row['GamepadFamiliarity']
+            avgs = {eid_map[eid]: tfr_epochs[eid].average() for eid in event_ids.keys()}
+            erdss = {eid_map[eid]: {bname: tfr_epochs[eid].data[:, :, band, :].mean(axis=2).astype(np.float16)
+                                    for bname, band in bands.items()}
+                     for eid in event_ids.keys()}
 
-        # from intro of: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6381427/
-        fois = {'theta-delta': (2, 7),
-                'low_alpha': (iaf_ok - 3, iaf_ok), 'high_alpha': (iaf_ok, iaf_ok + 3), 'alpha': (iaf_ok - 3, iaf_ok + 3),
-                'low_beta': (13, 20), 'mid_beta': (18, 25), 'high_beta': (25, 35)}
+            if handedness in handedness_tfr:
+                handedness_tfr[handedness].append(avgs)
+                handedness_subj[handedness].append(subj)
+                handedness_erds[handedness].append(erdss)
+            if age in age_tfr:
+                age_tfr[age_str].append(avgs)
+                age_subj[age_str].append(subj)
+                age_erds[age_str].append(erdss)
+            if gender in gender_tfr:
+                gender_tfr[gender].append(avgs)
+                gender_subj[gender].append(subj)
+                gender_erds[gender].append(erdss)
+            if famil in famil_tfr:
+                famil_tfr[famil].append(avgs)
+                famil_subj[famil].append(subj)
+                famil_erds[famil].append(erdss)
 
-        fig = plot_erds(tfr_epochs, fois, event_ids, channels, freqs, times, shift=False)
-        fig_shifted = plot_erds(tfr_epochs, fois, event_ids, channels, freqs, times, shift=True)
+            fig = plot_erds(tfr_epochs, fois, event_ids, channels, freqs, times, shift=False)
+            fig_shifted = plot_erds(tfr_epochs, fois, event_ids, channels, freqs, times, shift=True)
 
-        out_folder = f'out/handedness/{part}/{handedness}'
-        os.makedirs(out_folder, exist_ok=True)
-        fig.savefig(f'{out_folder}/{subj}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=350)
-        fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
-        plt.close('all')
+            out_folder = f'out/handedness/{part}/{handedness}'
+            os.makedirs(out_folder, exist_ok=True)
+            fig.savefig(f'{out_folder}/{subj}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            plt.close('all')
 
-    # left_hand_tfrs = {task: concat_tfr_epochs([tfr[task] for tfr in handedness_tfr['L']], eeg_info, times, freqs, event_ids)
-    #                   for task in ['left', 'right']}
-    # with open('out/post_anal_handedness.pkl', 'wb') as f:
-    #     pickle.dump({'L': concat_tfr_epochs(handedness_tfr['L'], eeg_info, times, freqs, event_ids),
-    #                  'R': concat_tfr_epochs(handedness_tfr['R'], eeg_info, times, freqs, event_ids),
-    #                  'subj': handedness_subj}, f)
+        # left_hand_tfrs = {task: concat_tfr_epochs([tfr[task] for tfr in handedness_tfr['L']], eeg_info, times, freqs, event_ids)
+        #                   for task in ['left', 'right']}
+        # with open('out/post_anal_handedness.pkl', 'wb') as f:
+        #     pickle.dump({'L': concat_tfr_epochs(handedness_tfr['L'], eeg_info, times, freqs, event_ids),
+        #                  'R': concat_tfr_epochs(handedness_tfr['R'], eeg_info, times, freqs, event_ids),
+        #                  'subj': handedness_subj}, f)
 
+        grping_names = ['handedness', 'age', 'gender', 'famil']
+        grping_tfrs = [handedness_tfr, age_tfr, gender_tfr, famil_tfr]
+        grping_subjs = [handedness_subj, age_subj, gender_subj, famil_subj]
+        grping_erdss = [handedness_erds, age_erds, gender_erds, famil_erds]
+        by_grping_iafs = {grping: [] for grping in grping_names}
+
+        with open('tmp/panal.pkl', 'wb') as f:
+            pickle.dump([grping_names, grping_tfrs, grping_subjs, grping_erdss, by_grping_iafs, iafs,
+                         eeg_info, freqs, times, event_ids], f)
+
+    else:  # load back grping
+        with open('tmp/panal.pkl', 'rb') as f:
+            grping_names, grping_tfrs, grping_subjs, grping_erdss, by_grping_iafs,\
+                iafs, eeg_info, freqs, times, event_ids = \
+                pickle.load(f)
+
+    # plot that shit
     all_events, all_task_epochs_data = [], []
-    new_event_ids = {'left': 0, 'right': 1}
+    new_event_ids = {'Left finger': 0, 'Right finger': 1, 'Left-right fingers': 2}
 
-    grping_names = ['handedness', 'age', 'gender', 'famil']
-    grping_tfrs = [handedness_tfr, age_tfr, gender_tfr, famil_tfr]
-    grping_subjs = [handedness_subj, age_subj, gender_subj, famil_subj]
-    by_grping_iafs = {grping: [] for grping in grping_names}
-
-    for grping_name, grping_tfr, grping_subj in zip(grping_names, grping_tfrs, grping_subjs):
+    for grping_name, grping_tfr, grping_subj, grping_erds in zip(grping_names, grping_tfrs, grping_subjs, grping_erdss):
 
         for grp in grping_tfr.keys():
             print('=' * 50, grp, '=' * 50)
@@ -205,7 +235,8 @@ def main(part='task'):  # task | pull
                 plot_avg_tfr(right_task, subj, 'right', f'{subj}-right', out_folder=out_folder, ch_names=channels)
 
             # combined
-            for task in ['left', 'right']:
+            stored_event_ids = grping_tfr[next(iter(grping_tfr.keys()))][0].keys()
+            for task in stored_event_ids:
                 task_avg = np.stack([tfrs[task].data for tfrs in grping_tfr[grp]]).mean(axis=0)
                 task_avg = mne.time_frequency.AverageTFR(eeg_info, task_avg, times, freqs, nave=grping_tfr[grp])
                 plot_avg_tfr(task_avg, 'ALL', task, f'ALL-{task}', out_folder=out_folder, ch_names=channels)
@@ -216,13 +247,15 @@ def main(part='task'):  # task | pull
                     'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24)}
             left_tfrs = [tfrs['left'].data for tfrs in grping_tfr[grp]]
             right_tfrs = [tfrs['right'].data for tfrs in grping_tfr[grp]]
+            lr_tfrs = [tfrs['left-right'].data for tfrs in grping_tfr[grp]]
 
-            # plot all together for given handedness or other grouping
-            task_epochs_data = np.stack(left_tfrs + right_tfrs)
-            events = np.stack([np.arange(0, len(left_tfrs) + len(right_tfrs)) * 10000,  # time, every 10 sec, whatev
-                               np.zeros(len(left_tfrs) + len(right_tfrs), dtype=np.int32),  # whatev
-                               np.concatenate([np.zeros(len(left_tfrs), dtype=np.int32),  # event_ids..
-                                               np.ones(len(right_tfrs), dtype=np.int32)])], axis=1)  # 0->left, 1->right
+            # plot all together for given handedness or other grouping - avg of avg of session
+            task_epochs_data = np.stack(left_tfrs + right_tfrs + lr_tfrs)
+            events = np.stack([np.arange(0, len(left_tfrs) + len(right_tfrs) + len(lr_tfrs)) * 10000,  # time, every 10 sec, whatev
+                               np.zeros(len(left_tfrs) + len(right_tfrs) + len(lr_tfrs), dtype=np.int32),  # whatev
+                               np.concatenate([np.zeros(len(left_tfrs), dtype=np.int32),  # event_ids: 0->left
+                                               np.ones(len(right_tfrs), dtype=np.int32),  # 1->right
+                                               np.zeros(len(lr_tfrs), dtype=np.int32) + 2])], axis=1)  # 2->left-right
 
             by_grping_iafs[grping_name].append(mean_iaf)
             all_events.append(events)
@@ -232,8 +265,22 @@ def main(part='task'):  # task | pull
                                                        events=events, event_id=new_event_ids)
             fig = plot_erds(task_epochs, fois, new_event_ids, channels, freqs, times, shift=False)
             fig_shifted = plot_erds(task_epochs, fois, new_event_ids, channels, freqs, times, shift=True)
-            fig.savefig(f'{out_folder}/ALL_erds_fois_hand-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
-            fig_shifted.savefig(f'{out_folder}/ALL_erds_fois_hand-{grp}_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            fig.savefig(f'{out_folder}/ALL_erds_fois_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            fig_shifted.savefig(f'{out_folder}/ALL_erds_fois_{grping_name}-{grp}_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
+
+            # plot grand avg ERDS
+            erdss = grping_erds[grp]
+            band_names = next(iter(erdss[0].values())).keys()
+            comb_erdss = {ev: {band: np.concatenate([erds[ev][band] for erds in erdss])
+                               for band in band_names}
+                          for ev in stored_event_ids}
+            fig_comb = plot_erds_raw(comb_erdss, stored_event_ids, band_names, channels, freqs, times)
+            fig_comb.savefig(f'{out_folder}/ALL_erds_fois_grand_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
+
+            # plot contra C3: bootstrap across session avg(per session avg(right) - per session avg(left));
+            #      contra C4: bootstrap across session avg(per session avg(left) - per session avg(right))
+            # TODO !!!!!!!!!!!!!!!
+
             plt.close('all')
 
     # # left and right handed combined
@@ -261,5 +308,5 @@ def main(part='task'):  # task | pull
 
 
 if __name__ == '__main__':
-    main(part='task')
+    # main(part='task')
     main(part='pull')
