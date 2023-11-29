@@ -14,4 +14,4 @@ keys/
 .vscode/
 tmp/
 /models/
-tmp.py
+tmp*.py

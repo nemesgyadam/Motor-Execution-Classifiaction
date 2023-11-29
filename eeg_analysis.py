@@ -244,7 +244,7 @@ class TDomPrepper:
 
 def preprocess_session(rec_base_path, rec_name, subject, session, exp_cfg_path,
                        eeg_sfreq=250, gamepad_sfreq=125, bandpass_freq=(0.5, 80), notch_freq=(50, 100),
-                       freqs=np.arange(2, 50, 0.2), do_plot=False, reaction_tmax=1.,
+                       freqs=np.arange(2, 50, 0.2), do_plot=False, reaction_tmax=.6,
                        n_jobs=4, verbose=False, fig_output_path='out', motor_imaginary=False):
     
     print('-' * 50 + f'\nPROCESSING: {subject}/{session:03d}\n' + '-' * 50)
@@ -961,6 +961,7 @@ def main(
     bandpass_freq=(.5, 50),
     notch_freq=(50, 100),
     baseline=(-1, -.05),  # normalize signal according to the baseline interval
+    pull_baseline=(-1.3, -.3),  # capture alpha kuss before movement
     eeg_sfreq=250, gamepad_sfreq=125,  # sampling frequencies
     reaction_tmax=0.6,  # max amount of time between cue and gamepad trigger pull allowed in sec
     store_per_session_recs=False,  # store extra preprocessed fif and h5 files, native to mne
@@ -1023,6 +1024,7 @@ def main(
         meta_data = {name: None for name in meta_names}
         meta_data['iafs'] = []  # individual alpha freq for each session
         meta_data['baseline'] = baseline
+        meta_data['pull_baseline'] = pull_baseline
         meta_data['tfr_baseline_mode'] = tfr_baseline_mode
         meta_data['tfr_mode'] = tfr_mode
         meta_data['freqs'] = freqs
@@ -1057,7 +1059,7 @@ def main(
             # epoch sessions
             task_epochs_sess = epoch_on_task(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
                                              n_cycles, verbose=verbose, filter_percentile=filter_percentile)
-            pull_epochs_sess = epoch_on_pull(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode,
+            pull_epochs_sess = epoch_on_pull(sid, sess, exp_cfg_path, freqs, pull_baseline, tfr_mode,
                                              tfr_baseline_mode, n_cycles, verbose=verbose,
                                              filter_percentile=filter_percentile, reaction_tmax=reaction_tmax)
             break_epochs_sess = epoch_on_break(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
