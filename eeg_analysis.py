@@ -1059,9 +1059,12 @@ def main(
         # num_epochs = []
         meta_names = ['eeg_info', 'event_dict', 'on_task_times', 'task_event_ids', 'break_event_ids', 'eeg_ch_names',
                       'pull_event_ids', 'on_pull_times', 'on_break_times', 'task_baseline', 'pull_baseline',
-                      'break_baseline', 'pull_success_stat', 'pull_delay']
+                      'break_baseline']
         meta_data = {name: None for name in meta_names}
         meta_data['iafs'] = []  # individual alpha freq for each session
+        meta_data['pull_delay'] = []  # pull delays for each session
+        meta_data['pull_success_stat'] = []
+
         meta_data['baseline'] = baseline
         meta_data['pull_baseline'] = pull_baseline
         meta_data['tfr_baseline_mode'] = tfr_baseline_mode
@@ -1094,6 +1097,8 @@ def main(
             _, _, iaf = process_eyes_open_closed(sess['filt_raw_eeg'], sess['events'], sess['eeg_info'],
                                                  do_plot=do_plot, output_path=fig_output_path, verbose=verbose)
             meta_data['iafs'].append(iaf)
+            meta_data['pull_delay'].append(sess['pull_delay'])
+            meta_data['pull_success_stat'].append(sess['pull_success_stat'])
 
             # epoch sessions
             task_epochs_sess = epoch_on_task(sid, sess, exp_cfg_path, freqs, baseline, tfr_mode, tfr_baseline_mode,
@@ -1194,4 +1199,4 @@ if __name__ == '__main__':  # TODO rerun
             is_imaginary[[-1, -2]] = True
 
         main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=True,
-             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis, tfr_baseline_mode='logratio')  # TODO logratio
+             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis, tfr_baseline_mode='logratio')

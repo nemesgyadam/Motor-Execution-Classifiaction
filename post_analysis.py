@@ -96,14 +96,12 @@ def load_experiments_table():
     return experiment_sheet.get_as_df()
 
 
-def main(part='task'):  # task | pull
-    prep_data_path = 'out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100'
+def main(part, prep_data_path, recompute_grping=False):  # task | pull
     subjects, sessions = get_sessions(prep_data_path, subj_prefix='')
     exps = load_experiments_table()
     channels = ('C3', 'Cz', 'C4')
-    eid_map = {'left': 'left', 'right': 'right', 'left-pull': 'left', 'right-pull': 'right',
-               'left-right': 'left-right', 'left-right-pull': 'left-right', 'nothing': 'nothing'}
-    recompute_grping = False
+    eid_map = {'left': 'Left finger', 'right': 'Right finger', 'left-pull': 'Left finger', 'right-pull': 'Right finger',
+               'left-right': 'Left-right fingers', 'left-right-pull': 'Left-right fingers', 'nothing': 'Nothing'}
 
     iafs = {}
     handedness_tfr = {'L': [], 'R': []}
@@ -229,10 +227,10 @@ def main(part='task'):  # task | pull
             # per subject
             out_folder = f'out/{grping_name}/{part}/{grp}'
             for subj, tfr in zip(grping_subj[grp], grping_tfr[grp]):
-                left_task = tfr['left']
-                right_task = tfr['right']
-                plot_avg_tfr(left_task, subj, 'left', f'{subj}-left', out_folder=out_folder, ch_names=channels)
-                plot_avg_tfr(right_task, subj, 'right', f'{subj}-right', out_folder=out_folder, ch_names=channels)
+                left_task = tfr[eid_map['left']]
+                right_task = tfr[eid_map['right']]
+                plot_avg_tfr(left_task, subj, 'Left finger', f'{subj}-left', out_folder=out_folder, ch_names=channels)
+                plot_avg_tfr(right_task, subj, 'Right finger', f'{subj}-right', out_folder=out_folder, ch_names=channels)
 
             # combined
             stored_event_ids = grping_tfr[next(iter(grping_tfr.keys()))][0].keys()
@@ -243,11 +241,16 @@ def main(part='task'):  # task | pull
 
             # plot ERDS: given handedness or other grouping, left and right hand
             mean_iaf = np.mean(list(iafs.values()))
-            fois = {'wide_mu': (mean_iaf - 2, mean_iaf + 2), 'tight_mu': (mean_iaf - 1, mean_iaf + 1),
-                    'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24)}
-            left_tfrs = [tfrs['left'].data for tfrs in grping_tfr[grp]]
-            right_tfrs = [tfrs['right'].data for tfrs in grping_tfr[grp]]
-            lr_tfrs = [tfrs['left-right'].data for tfrs in grping_tfr[grp]]
+            # fois = {'wide_mu': (mean_iaf - 2, mean_iaf + 2), 'tight_mu': (mean_iaf - 1, mean_iaf + 1),
+            #         'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24)}
+            fois = {'theta-delta': (2, 7),
+                    'low_alpha': (mean_iaf - 3, mean_iaf), 'high_alpha': (mean_iaf, mean_iaf + 3),
+                    'alpha': (mean_iaf - 3, mean_iaf + 3),
+                    'low_beta': (13, 20), 'mid_beta': (18, 25), 'high_beta': (25, 35)}
+
+            left_tfrs = [tfrs[eid_map['left']].data for tfrs in grping_tfr[grp]]
+            right_tfrs = [tfrs[eid_map['right']].data for tfrs in grping_tfr[grp]]
+            lr_tfrs = [tfrs[eid_map['left-right']].data for tfrs in grping_tfr[grp]]
 
             # plot all together for given handedness or other grouping - avg of avg of session
             task_epochs_data = np.stack(left_tfrs + right_tfrs + lr_tfrs)
@@ -271,15 +274,11 @@ def main(part='task'):  # task | pull
             # plot grand avg ERDS
             erdss = grping_erds[grp]
             band_names = next(iter(erdss[0].values())).keys()
-            comb_erdss = {ev: {band: np.concatenate([erds[ev][band] for erds in erdss])
-                               for band in band_names}
+            comb_erdss = {eid_map[ev]: {band: np.concatenate([erds[ev][band] for erds in erdss])
+                                        for band in band_names}
                           for ev in stored_event_ids}
-            fig_comb = plot_erds_raw(comb_erdss, stored_event_ids, band_names, channels, freqs, times)
+            fig_comb = plot_erds_raw(comb_erdss, new_event_ids, band_names, channels, freqs, times)
             fig_comb.savefig(f'{out_folder}/ALL_erds_fois_grand_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
-
-            # plot contra C3: bootstrap across session avg(per session avg(right) - per session avg(left));
-            #      contra C4: bootstrap across session avg(per session avg(left) - per session avg(right))
-            # TODO !!!!!!!!!!!!!!!
 
             plt.close('all')
 
@@ -307,6 +306,11 @@ def main(part='task'):  # task | pull
     print('done')
 
 
+# TODO try set norm_c34_w_cz=True
+
+
 if __name__ == '__main__':
-    # main(part='task')
-    main(part='pull')
+    # out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100
+    # out_bl-1--0.05_tfr-multitaper-logratio_reac-0.5_bad-95_f-2-40-100
+    main(part='pull', prep_data_path='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100', recompute_grping=True)
+    main(part='task', prep_data_path='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100', recompute_grping=False)
