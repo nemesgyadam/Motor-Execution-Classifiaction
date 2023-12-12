@@ -849,7 +849,7 @@ def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show
     fig, axes = plt.subplots(len(fois), len(channels), figsize=(8 * len(channels), len(fois) * 7))
     colors = cm.rainbow(np.linspace(0, 1, len(event_ids)))
 
-    ylim = [-3, 5] if shift else [-1, 1.5]
+    ylim = [-.55, 1.] if shift else [-.5, 1.]  # [-.4, .2]
 
     for foi_i, (foi_name, foi) in enumerate(fois.items()):  # freq rng of interest
         foi_freqs = (foi[0] <= freqs) & (freqs <= foi[1])
@@ -887,12 +887,15 @@ def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show
                 if foi_i == 0:
                     axes[foi_i, ch_i].set_title(ch)
                 if ch_i == 0:
-                    axes[foi_i, ch_i].set_ylabel(foi_name)
+                    axes[foi_i, ch_i].set_ylabel(f'{foi_name} Power Change ($dB$)')
+                    plt.axvline(x=0, color='gray', linestyle='--')
                 if foi_i == 0 and ev_i == len(event_ids.keys()) - 1 and ch_i == 0:
                     fig.legend(loc='lower center', ncols=len(event_ids))
                 if shift:
                     axes[foi_i, ch_i].set_xticklabels([])
                     axes[foi_i, ch_i].set_xlabel('$shifted$')
+                else:
+                    axes[foi_i, ch_i].set_xlabel('Time (s)')
 
     return fig
 
@@ -1199,4 +1202,4 @@ if __name__ == '__main__':  # TODO rerun
             is_imaginary[[-1, -2]] = True
 
         main(subject=subject, session_ids=sess_ids, rerun_proc=rerun_preproc, norm_c34_w_cz=False, do_plot=True,
-             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis, tfr_baseline_mode='logratio')
+             reaction_tmax=.6, is_imaginary=is_imaginary, rerun_analysis=rerun_analysis, tfr_baseline_mode='percent')  # 'logratio')

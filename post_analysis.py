@@ -23,7 +23,7 @@ def concat_tfr_epochs(epochs_list: list, eeg_info, times, freqs, event_ids):
 
 
 def plot_avg_tfr(tfr_avg_ev: mne.time_frequency.AverageTFR, subj, event_name, title, out_folder, ch_names):
-    vmin, vmax = -1, 1.5
+    vmin, vmax = [-.5, 1.]
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     channels = tfr_avg_ev.ch_names
     fig, axes = plt.subplots(1, len(channels) + 1, figsize=(14, 4),
@@ -119,8 +119,11 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
     famil_erds = {'couple times': [], 'regular': []}
     eeg_info, freqs, times, event_ids = None, None, None, None
 
+    # TODO !!!
+    subjects = ['0717b399']
+
     if recompute_grping:
-        for subj, sess in tqdm(zip(subjects, sessions), 'subjects', total=len(subjects)):
+        for subj in tqdm(subjects, 'subjects', total=len(subjects)):
             epochs, tfr_epochs, eeg_info, freqs, times, on_events, edited_on_events, event_ids, iaf = \
                 load_subject_prep_data(prep_data_path, subj, part, channels)
             iafs[subj] = iaf
@@ -146,10 +149,13 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
             #         'wide_beta': (13, 30), 'tight_beta': (18, 30), 'tighter_beta': (16, 24)}
 
             # from intro of: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6381427/
-            fois = {'theta-delta': (2, 7),
-                    'low_alpha': (iaf_ok - 3, iaf_ok), 'high_alpha': (iaf_ok, iaf_ok + 3),
-                    'alpha': (iaf_ok - 3, iaf_ok + 3),
-                    'low_beta': (13, 20), 'mid_beta': (18, 25), 'high_beta': (25, 35)}
+            # fois = {'theta-delta': (2, 7),
+            #         'low_alpha': (iaf_ok - 3, iaf_ok), 'high_alpha': (iaf_ok, iaf_ok + 3),
+            #         'alpha': (iaf_ok - 3, iaf_ok + 3),
+            #         'low_beta': (13, 20), 'mid_beta': (18, 25), 'high_beta': (25, 35)}
+
+            fois = {'Alpha': (iaf_ok - 3, iaf_ok + 3), 'Beta': (13, 30)}
+
             bands = {fname: (f0 <= freqs) & (freqs <= f1) for fname, (f0, f1) in fois.items()}
 
             # setup groupings
@@ -185,8 +191,8 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
 
             out_folder = f'out/handedness/{part}/{handedness}'
             os.makedirs(out_folder, exist_ok=True)
-            fig.savefig(f'{out_folder}/{subj}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=350)
-            fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            fig.savefig(f'{out_folder}/{subj}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=250)
+            fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=250)
             plt.close('all')
 
         # left_hand_tfrs = {task: concat_tfr_epochs([tfr[task] for tfr in handedness_tfr['L']], eeg_info, times, freqs, event_ids)
@@ -211,6 +217,8 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
             grping_names, grping_tfrs, grping_subjs, grping_erdss, by_grping_iafs,\
                 iafs, eeg_info, freqs, times, event_ids = \
                 pickle.load(f)
+
+    exit()  # TODO rm !!!
 
     # plot that shit
     all_events, all_task_epochs_data = [], []
@@ -274,9 +282,10 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
             # plot grand avg ERDS
             erdss = grping_erds[grp]
             band_names = next(iter(erdss[0].values())).keys()
-            comb_erdss = {eid_map[ev]: {band: np.concatenate([erds[ev][band] for erds in erdss])
-                                        for band in band_names}
-                          for ev in stored_event_ids}
+            ev_ids = erdss[0].keys()
+            comb_erdss = {ev: {band: np.concatenate([erds[ev][band] for erds in erdss])
+                               for band in band_names}
+                          for ev in ev_ids}
             fig_comb = plot_erds_raw(comb_erdss, new_event_ids, band_names, channels, freqs, times)
             fig_comb.savefig(f'{out_folder}/ALL_erds_fois_grand_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
 
@@ -312,5 +321,5 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
 if __name__ == '__main__':
     # out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100
     # out_bl-1--0.05_tfr-multitaper-logratio_reac-0.5_bad-95_f-2-40-100
-    main(part='pull', prep_data_path='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100', recompute_grping=True)
-    main(part='task', prep_data_path='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100', recompute_grping=False)
+    main(part='pull', prep_data_path='out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100', recompute_grping=True)
+    main(part='task', prep_data_path='out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100', recompute_grping=False)
