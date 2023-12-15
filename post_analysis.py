@@ -8,6 +8,7 @@ import pygsheets
 from tqdm import tqdm
 from matplotlib.colors import TwoSlopeNorm
 from eeg_analysis import get_sessions
+from matplotlib.ticker import MaxNLocator
 
 from eeg_analysis import plot_erds, plot_erds_raw
 
@@ -22,25 +23,39 @@ def concat_tfr_epochs(epochs_list: list, eeg_info, times, freqs, event_ids):
     return tfr_epochs
 
 
-def plot_avg_tfr(tfr_avg_ev: mne.time_frequency.AverageTFR, subj, event_name, title, out_folder, ch_names):
-    vmin, vmax = [-.5, 1.]
+def plot_avg_tfr(tfr_avg_ev: mne.time_frequency.AverageTFR, subj, event_name, title, out_folder, ch_names, axes=None, fig=None, nrow=None):
+    vmin, vmax = [-.6, 1.2]
     cnorm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     channels = tfr_avg_ev.ch_names
-    fig, axes = plt.subplots(1, len(channels) + 1, figsize=(14, 4),
-                             gridspec_kw={"width_ratios": [10] * len(channels) + [1]})
+
+    created_axes = axes
+    if axes is None:
+        fig, created_axes = plt.subplots(nrow, len(channels) + 1, figsize=(14, 4*nrow),
+                                 gridspec_kw={"width_ratios": [10] * len(channels) + [1]})
+        axes = created_axes[0]
 
     for ch, ax in enumerate(axes[:-1]):  # for each channel
         tfr_avg_ev.plot([ch], cmap="RdBu_r", cnorm=cnorm, axes=ax, colorbar=False,
                               show=False, mask=None, mask_style=None)
-        ax.set_title(ch_names[ch], fontsize=10)
+        ax.set_title(ch_names[ch], fontsize=14)
+        ax.set_ylabel('Frequency ($Hz$)', fontsize=14)
+        ax.set_xlabel('Time ($s$)', fontsize=14)
         ax.axvline(0, linewidth=1, color="black", linestyle=":")  # event
+        # ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_yticks(list(range(2, 6)) + list(range(7, 16, 2)) + list(range(20, 31, 5)) + list(range(40, 41, 10)),
+                      fontsize=12)
 
+    plt.tight_layout()
+    plt.subplots_adjust(wspace=0.3)
+    plt.subplots_adjust(right=0.95)
     cbar_src = axes[0].images[-1] if len(axes[0].images) > 0 else axes[0].collections[0]
-    fig.colorbar(cbar_src, cax=axes[-1]).ax.set_yscale("linear")
-    fig.suptitle(f'ERDS: {title}')
+    if nrow is not None:  # only first plot
+        fig.colorbar(cbar_src, cax=axes[-1]).ax.set_yscale("linear")
+    # fig.suptitle(f'ERDS: {title}')
     os.makedirs(out_folder, exist_ok=True)
-    fig.savefig(f'{out_folder}/{subj}_erds_{event_name}.png')
-    return fig
+    # fig.savefig(f'{out_folder}/{subj}_erds_{event_name}.png', dpi=200)
+    # fig.savefig(f'{out_folder}/{subj}_erds_{event_name}.pdf', dpi=200)
+    return fig, created_axes
 
 
 def load_subject_prep_data(prep_data_path, subject, part='task', channels=('C3', 'Cz', 'C4'), norm_c34_w_cz=False,
@@ -186,13 +201,18 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
                 famil_subj[famil].append(subj)
                 famil_erds[famil].append(erdss)
 
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! here
             fig = plot_erds(tfr_epochs, fois, event_ids, channels, freqs, times, shift=False)
             fig_shifted = plot_erds(tfr_epochs, fois, event_ids, channels, freqs, times, shift=True)
 
             out_folder = f'out/handedness/{part}/{handedness}'
             os.makedirs(out_folder, exist_ok=True)
-            fig.savefig(f'{out_folder}/{subj}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=250)
-            fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=250)
+            fig.savefig(f'{out_folder}/{subj}_erds_fois.png', bbox_inches='tight', pad_inches=0, dpi=200)
+            fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.png', bbox_inches='tight', pad_inches=0, dpi=200)
+
+            fig.savefig(f'{out_folder}/{subj}_erds_fois.pdf', bbox_inches='tight', pad_inches=0, dpi=200)
+            fig_shifted.savefig(f'{out_folder}/{subj}_erds_fois_shifted.pdf', bbox_inches='tight', pad_inches=0, dpi=200)
+
             plt.close('all')
 
         # left_hand_tfrs = {task: concat_tfr_epochs([tfr[task] for tfr in handedness_tfr['L']], eeg_info, times, freqs, event_ids)
@@ -218,7 +238,7 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
                 iafs, eeg_info, freqs, times, event_ids = \
                 pickle.load(f)
 
-    exit()  # TODO rm !!!
+    # return  # TODO rm
 
     # plot that shit
     all_events, all_task_epochs_data = [], []
@@ -232,16 +252,26 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
                 print(f'no {grp} {grping_name}!', file=sys.stderr)
                 continue
 
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! here
             # per subject
             out_folder = f'out/{grping_name}/{part}/{grp}'
             for subj, tfr in zip(grping_subj[grp], grping_tfr[grp]):
                 left_task = tfr[eid_map['left']]
                 right_task = tfr[eid_map['right']]
-                plot_avg_tfr(left_task, subj, 'Left finger', f'{subj}-left', out_folder=out_folder, ch_names=channels)
-                plot_avg_tfr(right_task, subj, 'Right finger', f'{subj}-right', out_folder=out_folder, ch_names=channels)
+                fig, axes = plot_avg_tfr(left_task, subj, 'Left finger', f'{subj}-left', out_folder=out_folder,
+                                         ch_names=channels, axes=None, nrow=2)
+                fig, _ = plot_avg_tfr(right_task, subj, 'Right finger', f'{subj}-right', out_folder=out_folder,
+                                      ch_names=channels, axes=axes[1], fig=fig)
+                fig.savefig(f'{out_folder}/{subj}_erds_all.png', dpi=200)
+                fig.savefig(f'{out_folder}/{subj}_erds_all.pdf', dpi=200)
+
+                # plot_avg_tfr(right_task, subj, 'Left-right fingers', f'{subj}-right', out_folder=out_folder, ch_names=channels)
+                # plot_avg_tfr(right_task, subj, 'Nothing', f'{subj}-right', out_folder=out_folder, ch_names=channels)
+
+            continue  # TODO !!!
 
             # combined
-            stored_event_ids = grping_tfr[next(iter(grping_tfr.keys()))][0].keys()
+            stored_event_ids = [v[0].keys() for v in grping_tfr.values() if len(v) > 0][0]
             for task in stored_event_ids:
                 task_avg = np.stack([tfrs[task].data for tfrs in grping_tfr[grp]]).mean(axis=0)
                 task_avg = mne.time_frequency.AverageTFR(eeg_info, task_avg, times, freqs, nave=grping_tfr[grp])
@@ -275,9 +305,9 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
             task_epochs = mne.time_frequency.EpochsTFR(eeg_info, task_epochs_data, times, freqs,
                                                        events=events, event_id=new_event_ids)
             fig = plot_erds(task_epochs, fois, new_event_ids, channels, freqs, times, shift=False)
-            fig_shifted = plot_erds(task_epochs, fois, new_event_ids, channels, freqs, times, shift=True)
-            fig.savefig(f'{out_folder}/ALL_erds_fois_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
-            fig_shifted.savefig(f'{out_folder}/ALL_erds_fois_{grping_name}-{grp}_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            # fig_shifted = plot_erds(task_epochs, fois, new_event_ids, channels, freqs, times, shift=True)
+            fig.savefig(f'{out_folder}/ALL_erds_fois_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=200)
+            # fig_shifted.savefig(f'{out_folder}/ALL_erds_fois_{grping_name}-{grp}_shifted.png', bbox_inches='tight', pad_inches=0, dpi=350)
 
             # plot grand avg ERDS
             erdss = grping_erds[grp]
@@ -287,7 +317,7 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
                                for band in band_names}
                           for ev in ev_ids}
             fig_comb = plot_erds_raw(comb_erdss, new_event_ids, band_names, channels, freqs, times)
-            fig_comb.savefig(f'{out_folder}/ALL_erds_fois_grand_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=350)
+            fig_comb.savefig(f'{out_folder}/ALL_erds_fois_grand_{grping_name}-{grp}.png', bbox_inches='tight', pad_inches=0, dpi=200)
 
             plt.close('all')
 
@@ -307,10 +337,10 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
     # plt.close('all')
 
     # plot iafs
-    print('king iaf:', iafs['158c8bc7'])
-    plt.hist(list(iafs.values()), bins=30)
-    plt.savefig(f'out/iafs.png', bbox_inches='tight', pad_inches=0, dpi=350)
-    plt.close('all')
+    # print('king iaf:', iafs['158c8bc7'])
+    # plt.hist(list(iafs.values()), bins=30)
+    # plt.savefig(f'out/iafs.png', bbox_inches='tight', pad_inches=0, dpi=350)
+    # plt.close('all')
 
     print('done')
 
@@ -321,5 +351,5 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
 if __name__ == '__main__':
     # out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100
     # out_bl-1--0.05_tfr-multitaper-logratio_reac-0.5_bad-95_f-2-40-100
-    main(part='pull', prep_data_path='out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100', recompute_grping=True)
-    main(part='task', prep_data_path='out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100', recompute_grping=False)
+    # main(part='pull', prep_data_path='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100', recompute_grping=False)  # TODO
+    main(part='task', prep_data_path='out_bl-1--0.05_tfr-multitaper-percent_reac-0.6_bad-95_f-2-40-100', recompute_grping=False)  # TODO

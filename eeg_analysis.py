@@ -830,8 +830,8 @@ def plot_erds_raw(erdss: dict, event_ids_list, band_names, channels, freqs, time
                 if ev_i == 0:
                     axes[foi_i, ch_i].axvline([0], *ylim, color='black')
                     low_cf, high_cf = np.percentile(tfr_f_ev, [10, 90])
-                    axes[foi_i, ch_i].axhline([low_cf], times[0], times[-1], color='gray')
-                    axes[foi_i, ch_i].axhline([high_cf], times[0], times[-1], color='gray')
+                    # axes[foi_i, ch_i].axhline([low_cf], times[0], times[-1], color='gray')
+                    # axes[foi_i, ch_i].axhline([high_cf], times[0], times[-1], color='gray')
                 if foi_i == 0:
                     axes[foi_i, ch_i].set_title(ch)
                 if ch_i == 0:
@@ -849,7 +849,11 @@ def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show
     fig, axes = plt.subplots(len(fois), len(channels), figsize=(8 * len(channels), len(fois) * 7))
     colors = cm.rainbow(np.linspace(0, 1, len(event_ids)))
 
-    ylim = [-.55, 1.] if shift else [-.5, 1.]  # [-.4, .2]
+    ylim = [-.6, 2.2] if shift else [-.6, 1.2]  # [-.4, .2]
+
+    label_size = 22
+    title_size = 24
+    tick_size = 16
 
     for foi_i, (foi_name, foi) in enumerate(fois.items()):  # freq rng of interest
         foi_freqs = (foi[0] <= freqs) & (freqs <= foi[1])
@@ -877,25 +881,37 @@ def plot_erds(epochs, fois, event_ids, channels, freqs, times, shift=False, show
                     axes[foi_i, ch_i].fill_between(times, conf_interval[0, ch_i], conf_interval[1, ch_i],
                                                    color=colors[ev_i], alpha=0.3)
                 label = event if ch_i == 0 else '_nolegend_'
+                label = label[0].upper() + label[1:]
+
                 axes[foi_i, ch_i].plot(times, tfr_f_ev_mean[ch_i], label=label, alpha=.85, color=colors[ev_i])
                 axes[foi_i, ch_i].set_ylim(ylim)
+                axes[foi_i, ch_i].tick_params(axis='x', labelsize=tick_size)
+                axes[foi_i, ch_i].tick_params(axis='y', labelsize=tick_size)
+                axes[foi_i, ch_i].spines['top'].set_visible(False)
+                axes[foi_i, ch_i].spines['right'].set_visible(False)
+
                 if ev_i == 0:
-                    axes[foi_i, ch_i].axvline([0], *ylim, color='black')
+                    axes[foi_i, ch_i].axvline([0], *ylim, color='black', linewidth=2)
+                    axes[foi_i, ch_i].axhline(y=0, color='gray', linewidth=2)
+
                     low_cf, high_cf = np.percentile(tfr_f_ev, [10, 90])
-                    axes[foi_i, ch_i].axhline([low_cf], times[0], times[-1], color='gray')
-                    axes[foi_i, ch_i].axhline([high_cf], times[0], times[-1], color='gray')
+                    # axes[foi_i, ch_i].axhline([low_cf], times[0], times[-1], color='gray')
+                    # axes[foi_i, ch_i].axhline([high_cf], times[0], times[-1], color='gray')
                 if foi_i == 0:
-                    axes[foi_i, ch_i].set_title(ch)
+                    axes[foi_i, ch_i].set_title(ch, fontsize=title_size)
                 if ch_i == 0:
-                    axes[foi_i, ch_i].set_ylabel(f'{foi_name} Power Change ($dB$)')
-                    plt.axvline(x=0, color='gray', linestyle='--')
+                    axes[foi_i, ch_i].set_ylabel(f'{foi_name} Power Change (%)', fontsize=title_size)
+                    # plt.axvline(x=0, color='gray', linestyle='--')
                 if foi_i == 0 and ev_i == len(event_ids.keys()) - 1 and ch_i == 0:
-                    fig.legend(loc='lower center', ncols=len(event_ids))
+                    fig.legend(loc='lower center', ncols=len(event_ids), fontsize=label_size)
                 if shift:
                     axes[foi_i, ch_i].set_xticklabels([])
-                    axes[foi_i, ch_i].set_xlabel('$shifted$')
+                    axes[foi_i, ch_i].set_xlabel('$shifted$', fontsize=label_size)
                 else:
-                    axes[foi_i, ch_i].set_xlabel('Time (s)')
+                    axes[foi_i, ch_i].set_xlabel('Time ($s$)', fontsize=label_size)
+
+    plt.subplots_adjust(wspace=0.22, hspace=0.22)
+    plt.subplots_adjust(bottom=0.15)
 
     return fig
 
@@ -1189,12 +1205,14 @@ def get_sessions(data_path='../recordings', subj_prefix='sub-'):
     return subjects, sessions
 
 
-if __name__ == '__main__':  # TODO rerun
+if __name__ == '__main__':
 
     data_path = '../recordings'
     subjects, sessions = get_sessions(data_path)
     rerun_preproc = False
     rerun_analysis = False
+
+    subjects = subjects[:1]  # TODO
 
     for subject, sess_ids in zip(subjects, sessions):
         is_imaginary = np.zeros(len(sess_ids), dtype=bool)

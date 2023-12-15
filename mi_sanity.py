@@ -150,7 +150,7 @@ def gen_erp_plots(epochs, ds_name, out_folder):
 
 
 def gen_erds_plots(epochs, ds_name, event_id, out_folder, freqs, comp_time_freq=True, comp_tf_clusters=True,
-                   channels=('C3', 'C1', 'C2', 'C4'), baseline=None, verbose=False, apply_baseline=False, copy=True):
+                   channels=('C3', 'Cz', 'C4'), baseline=None, verbose=False, apply_baseline=False, copy=True):
     
     ### ERDS: https://mne.tools/dev/auto_examples/time_frequency/time_frequency_erds.html
     tmin, tmax = baseline[0], None
