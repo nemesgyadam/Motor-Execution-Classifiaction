@@ -37,9 +37,17 @@ def plot_avg_tfr(tfr_avg_ev: mne.time_frequency.AverageTFR, subj, event_name, ti
     for ch, ax in enumerate(axes[:-1]):  # for each channel
         tfr_avg_ev.plot([ch], cmap="RdBu_r", cnorm=cnorm, axes=ax, colorbar=False,
                               show=False, mask=None, mask_style=None)
-        ax.set_title(ch_names[ch], fontsize=14)
-        ax.set_ylabel('Frequency ($Hz$)', fontsize=14)
-        ax.set_xlabel('Time ($s$)', fontsize=14)
+        if ch == 0:  # first col
+            ax.set_ylabel('Frequency ($Hz$)', fontsize=14)
+        else:
+            ax.set_ylabel('', fontsize=14)
+
+        if nrow is not None:  # first row
+            ax.set_title(ch_names[ch], fontsize=14)
+            ax.set_xlabel('', fontsize=14)
+        else:  # only second (last) row
+            ax.set_xlabel('Time ($s$)', fontsize=14)
+
         ax.axvline(0, linewidth=1, color="black", linestyle=":")  # event
         # ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax.set_yticks(list(range(2, 6)) + list(range(7, 16, 2)) + list(range(20, 31, 5)) + list(range(40, 41, 10)),
@@ -50,7 +58,13 @@ def plot_avg_tfr(tfr_avg_ev: mne.time_frequency.AverageTFR, subj, event_name, ti
     plt.subplots_adjust(right=0.95)
     cbar_src = axes[0].images[-1] if len(axes[0].images) > 0 else axes[0].collections[0]
     if nrow is not None:  # only first plot
-        fig.colorbar(cbar_src, cax=axes[-1]).ax.set_yscale("linear")
+        cbar = fig.colorbar(cbar_src, cax=axes[-1])
+        cbar.ax.set_yscale("linear")
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel('Power Change (%)', rotation=90, labelpad=13)
+        # axes[-1].set_ylabel('Power Change (%)')
+    else:
+        axes[-1].axis('off')
     # fig.suptitle(f'ERDS: {title}')
     os.makedirs(out_folder, exist_ok=True)
     # fig.savefig(f'{out_folder}/{subj}_erds_{event_name}.png', dpi=200)
@@ -112,7 +126,7 @@ def load_experiments_table():
 
 
 def main(part, prep_data_path, recompute_grping=False):  # task | pull
-    subjects, sessions = get_sessions(prep_data_path, subj_prefix='')
+    subjects, sessions = get_sessions(prep_data_path, subj_prefix='subj-')
     exps = load_experiments_table()
     channels = ('C3', 'Cz', 'C4')
     eid_map = {'left': 'Left finger', 'right': 'Right finger', 'left-pull': 'Left finger', 'right-pull': 'Right finger',
@@ -264,6 +278,8 @@ def main(part, prep_data_path, recompute_grping=False):  # task | pull
                                       ch_names=channels, axes=axes[1], fig=fig)
                 fig.savefig(f'{out_folder}/{subj}_erds_all.png', dpi=200)
                 fig.savefig(f'{out_folder}/{subj}_erds_all.pdf', dpi=200)
+                fig.savefig(f'{out_folder}/{subj}_erds_all.eps', dpi=200)
+                fig.savefig(f'{out_folder}/{subj}_erds_all.ps', dpi=200)
 
                 # plot_avg_tfr(right_task, subj, 'Left-right fingers', f'{subj}-right', out_folder=out_folder, ch_names=channels)
                 # plot_avg_tfr(right_task, subj, 'Nothing', f'{subj}-right', out_folder=out_folder, ch_names=channels)

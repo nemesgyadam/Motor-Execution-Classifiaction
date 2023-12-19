@@ -1,31 +1,28 @@
 import glob
 import sys
 import os
+from tqdm import tqdm
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"]=":4096:8"
 
+import warnings
+from docstring_inheritance.docstring_inheritors.bases.inheritor import DocstringInheritanceWarning
+warnings.filterwarnings("ignore", category=DocstringInheritanceWarning)
+
 import mne
 import pickle
-
 import torch
 import numpy as np
-
 from torch.utils.data import DataLoader
-
 from braindecode.models import *
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
-
 from copy import deepcopy
-
 import lightning as L
 from torch.nn import  NLLLoss
 from lightning.pytorch.callbacks import Callback
-
 import random
-
 from pprint import pprint
-
 from datetime import datetime
 import matplotlib.pyplot as plt
 
@@ -33,16 +30,14 @@ import argparse
 from data_gen import *
 
 
-
 def parse_args() -> argparse.Namespace:
     """
     Parse command line arguments.
     """
     parser = argparse.ArgumentParser(description="Settings for training")
-    parser.add_argument("--mode" ,type=str, help="Single or multi subject",choices=["single","multi"],default="single")
+    parser.add_argument("--mode", type=str, help="Single or multi subject", choices=["single","multi"], default="single")
+    parser.add_argument("--onset", type=str, help="Cue or pull onset", choices=["task", "pull"], default="task")
     return parser.parse_args()
-
-
 
 
 class GatherMetrics(Callback):
@@ -71,9 +66,7 @@ class BrainDecodeClassification(L.LightningModule):
         self.num_classes = len(cfg['events_to_cls']) if 'events_to_cls' in cfg else 4  # nothing/L/R/LR
         self.accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
         self.confusion = torchmetrics.ConfusionMatrix('multiclass', num_classes=self.num_classes)
-        # self.is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
 
-        # self.model.requires_grad_(True)
         print(self.model)
 
     def training_step(self, batch, batch_idx):
@@ -213,24 +206,16 @@ def main(cfg, param_updates, **kwargs):
     np.random.seed(42)
     torch.manual_seed(42)
 
-    # wandb.init(project='eeg-motor-execution', config=cfg)
     mne.set_log_level(False)
     datasets = []
-    for subject in cfg["subjects"]:
+    for subject in tqdm(cfg["subjects"], 'load subjects'):
         streams_path = f'{cfg["data_ver"]}/{subject}/{subject}_streams.h5'
         meta_path = f'{cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
-        # manual data loading
+
         data = EEGTimeDomainDataset(streams_path, meta_path, cfg)
-        # data = MomentaryEEGTimeDomainDataset(streams_path, meta_path, cfg, epoch_len=550, ret_likeliest_gamepad=.3)  # TODO
         datasets.append(data)
 
-    # assert (cfg['n_fold'] is not None) ^ (cfg['leave_k_out'] is not None), 'define n_fold xor leave_k_out'
-    # ds_split_gen = rnd_by_epoch_cross_val if cfg['n_fold'] is not None else by_sess_cross_val
-    # print('split generator:', ds_split_gen)
-
     min_val_losses, max_val_accs = [], []
-    # for split_i, (train_ds, valid_ds) in enumerate(ds_split_gen(data, cfg)):  # TODO
-    split_i = 0
 
     if cfg["mode"] == "single":  # for subject 0717b399, session 13 and 14 are motor imaginary
         train_ds, valid_ds = data.rnd_split_by_session(train_session_idx=np.arange(1, 11), valid_session_idx=np.arange(11, 13))
@@ -283,7 +268,7 @@ def main(cfg, param_updates, **kwargs):
 
     # train
     classif = BrainDecodeClassification(model, cfg)
-    model_name = f'braindecode_{model.__class__.__name__}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
+    model_name = f'braindecode_{args.mode}_{model.__class__.__name__}_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
     model_fname_template = "{epoch}_{step}_{val_loss:.2f}"
 
     os.makedirs(f'models/{model_name}', exist_ok=True)
@@ -299,6 +284,7 @@ def main(cfg, param_updates, **kwargs):
         save_last=False,
         verbose=True,
         mode="max")
+
     callbacks = [
         model_checkpoint,
         LearningRateMonitor(logging_interval='step'),
@@ -318,7 +304,7 @@ def main(cfg, param_updates, **kwargs):
             precision=cfg["precision"],
             gradient_clip_val=cfg["gradient_clip_val"],
             enable_progress_bar=False,
-            logger=CSVLogger(f"checkpoints/{model_name}",name="training_logs")
+            logger=CSVLogger(f"checkpoints/{model_name}", name="training_logs"),
         )
 
     trainer.fit(classif, train_dl, valid_dl)
@@ -343,23 +329,24 @@ def main(cfg, param_updates, **kwargs):
 if __name__ == "__main__":
 
     args = parse_args()
-
-    subjects = os.listdir('out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100')
+    preproc_path = 'out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100'
+    subjects = os.listdir(preproc_path)
 
     subjects = ["0717b399"] if args.mode == "single" else subjects
-
+    events_to_cls = {'left-pull': 0, 'right-pull': 1, 'left-right-pull': 2} if args.onset == "pull" \
+        else {'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3}
 
     default_cfg = dict(
         mode=args.mode,
-        subjects=subjects,   #['0717b399','1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
+        subjects=subjects,   # ['0717b399','1cfd7bfa', '4bc2006e', '4e7cac2d', '8c70c0d3', '0717b399'],
         data_ver='out_bl-1--0.05_tfr-multitaper-logratio_reac-0.6_bad-95_f-2-40-100',
         is_momentary=False,
-        #events_to_cls={'left': 0, 'right': 1, 'left-right': 2, 'nothing': 3},
-        events_to_cls={'left-pull': 0, 'right-pull': 1, 'left-right-pull': 2},
+        events_to_cls=events_to_cls,
         eeg_chans=['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8'],
         crop_t=(-.2, None),  # the part of the epoch to include
         resample=1.,  # no resample = 1.  # TODO
         stream_pred=False,
+        part=args.onset,
 
         batch_size=16,
         num_workers=8,
@@ -384,36 +371,30 @@ if __name__ == "__main__":
         ndev=1,
         multi_dev_strat=None,
 
-        epochs=100,  # TODO
+        epochs=100,
         init_lr=1e-3,
         train_data_ratio=.85,  # ratio of training data, the rest is validation
     )
 
     torch.use_deterministic_algorithms(False)
 
-    models_to_try = [  # TODO
+    models_to_try = [
         ShallowFBCSPNet,
-        #EEGNetv4,
-        #HybridNet,
-        #EEGResNet,
+        EEGNetv4,
+        EEGResNet,
         EEGInception,
         EEGITNet,
-        #Deep4Net,
-        TIDNet
-        #HybridNet
+        Deep4Net,
+        TIDNet,
+        HybridNet,
     ]
 
-    
     model_params_updates = [
-       
         dict(ShallowFBCSPNet=dict(n_filters_time=40, filter_time_length=25, n_filters_spat=40,
                                   pool_time_length=75, pool_time_stride=15),
-          
-             #EEGNetv4=dict(F1=8, D=2, F2=16, kernel_length=64, third_kernel_size=(8, 4)),
              EEGResNet=dict(n_first_filters=16, final_pool_length=8, n_layers_per_block=2),
-             #HybridNet=dict(n_chans=None, n_outputs=None, n_times=None,in_chans=None, n_classes=None, input_window_samples=None,add_log_softmax=True)),
-
-    )]
+        )
+    ]
 
     for update_i, updates in enumerate(model_params_updates):
         metricz = {}
@@ -422,20 +403,19 @@ if __name__ == "__main__":
 
         for model_cls in models_to_try:
 
-            if True:
-                model, classif, trainer, metrics = main(default_cfg, updates, model_cls=model_cls, batch_size=8)
-                models.append(model)
-                classifs.append(classif)
-                metricz[model_cls.__name__] = metrics
-                accuracies.append(metrics['max_acc'])
-                print('=' * 80, '\n', '=' * 80)
-                print(update_i, model_cls.__name__, '|', metrics)
-                print('=' * 80, '\n', '=' * 80)
-                pprint(metricz)
+            model, classif, trainer, metrics = main(default_cfg, updates, model_cls=model_cls, batch_size=8)
+            models.append(model)
+            classifs.append(classif)
+            metricz[model_cls.__name__] = metrics
+            accuracies.append(metrics['max_acc'])
+            print('=' * 80, '\n', '=' * 80)
+            print(update_i, model_cls.__name__, '|', metrics)
+            print('=' * 80, '\n', '=' * 80)
+            pprint(metricz)
 
-                plt.figure()
-                plt.imshow(metrics['confusion'].cpu().numpy())
-                plt.title(f'{update_i}/{model_cls.__name__}')
+            plt.figure()
+            plt.imshow(metrics['confusion'].cpu().numpy())
+            plt.title(f'{update_i}/{model_cls.__name__}')
 
         model_names = list(metricz.keys())
         min_val_loss_i = np.argsort([m['min_val_loss'] for m in metricz.values()])[0]
@@ -451,7 +431,7 @@ if __name__ == "__main__":
         subject = '0717b399'
         streams_path = f'{default_cfg["data_ver"]}/{subject}/{subject}_streams.h5'
         meta_path = f'{default_cfg["data_ver"]}/{subject}/{subject}_meta.pckl'
-        data = EEGTimeDomainDataset(streams_path, meta_path, default_cfg)
+        data = EEGTimeDomainDataset(streams_path, meta_path, default_cfg, args.onset)
 
         dl_params = dict(num_workers=default_cfg['num_workers'], prefetch_factor=default_cfg['prefetch_factor'],
                          persistent_workers=default_cfg['num_workers'] > 0, pin_memory=True)
