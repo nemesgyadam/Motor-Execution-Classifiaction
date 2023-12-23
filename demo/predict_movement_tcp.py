@@ -68,22 +68,18 @@ if __name__ == "__main__":
     dev = 'cuda'
     pred_threshold = .5
 
-    rec_len = 2000  # TODO
+    rec_len = 2000
     epoch_len = 876  # take this from the dataset epoch length
     baseline = (-1., -.05)  # dataset property
     bandpass_freq = (.5, 80)  # dataset property
     notch_freq = (50, 100)  # dataset property
-    filter_percentile = None#95  # dataset property TODO
+    filter_percentile = None  # 95  # dataset property
     tmin_max = (-1.5, 2.)  # epoch specific, check eeg_analysis or the experiment config
     crop_t = (-.2, None)  # should be same as in training script
-    thresholds = [.68, .75, .5]  #[.45, .54, .4]
+    thresholds = [.68, .75, .5]  # [.45, .54, .4]
     stay_thresh = .6
     diff_threshold = .3
 
-    # TODO keverd bele open meg closed eye recordingokat trainingsetbe mint nothing
-
-    # TODO TEST:
-    #   better threshold
     repeated_preds = np.zeros(4)
     repeated_preds_over_threshold = np.zeros(4)
 
@@ -145,7 +141,6 @@ if __name__ == "__main__":
         device.StartAcquisition(TestsignaleEnabled)
 
     try:
-        iiiiii = 0
         while True:
             if device is not None:
                 device.GetData(FrameLength, receiveBuffer, receiveBufferBufferLength)
@@ -163,45 +158,30 @@ if __name__ == "__main__":
                     print('peak2peak too high, skipped')
                     continue
 
-                # TODO rm
-                # pd.DataFrame({f'{i}': chan for i, chan in enumerate(epoch)}).to_parquet(f'tmp/stay_{iiiiii}.parquet')
-                iiiiii += 1
-
                 x = torch.as_tensor(epoch, device=dev, dtype=torch.float32)[None, ...]
                 y = model.infer(x)[0]
                 highest = np.argmax(y)
 
                 y = np.e ** y  # log prob to prob
-                # if y[0] > 0.1:  # TODO predictions dropped 50% of the time when no percentile, why
-                #     highest = 0
-                # elif y[1] > .85:
-                #     highest = 1
-                # else:
-                #     highest = 2  # TODO rm
 
-                repeated_preds[highest] += 1  # TODO
+                repeated_preds[highest] += 1
                 fuck = np.ones_like(y, dtype=bool)
                 fuck[highest] = False
                 if y[-1] > stay_thresh:
                     continue
-                if y[highest] > thresholds[highest]: #and y[highest] - diff_threshold > y[fuck].max():  #pred_threshold:
-                    repeated_preds_over_threshold[highest] += 1  # TODO
+                if y[highest] > thresholds[highest]:
+                    repeated_preds_over_threshold[highest] += 1
 
                     msg = events_to_msgs[cls_to_events[highest]]
                     sender.send_msg(msg)
                     print(f'{y}; sent: {msg}', file=sys.stderr)
 
                     if repeated_preds_over_threshold[highest] >= 3:
-                        # msg = events_to_msgs[cls_to_events[highest]]
-                        # sender.send_msg(msg)
-                        # print(f'{y}; sent: {msg}', file=sys.stderr)
-
                         if highest in (0, 1):
                             repeated_preds_over_threshold[[0, 1]] = 0
                         elif highest == 2:
                             repeated_preds_over_threshold[2] = 0
                         repeated_preds[highest] *= 0
-                        # repeated_preds_over_threshold[highest] *= 0
             else:
                 print(eeg_buffer.count)
 

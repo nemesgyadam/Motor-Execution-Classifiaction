@@ -37,9 +37,7 @@ import matplotlib.pyplot as plt
 from eeg_analysis import TDomPrepper
 
 
-class EEGTimeDomainDataset(Dataset):  # TODO generalize to epoch types: on_task, on_break, on_pull
-
-    # TODO !!!!!!!!!!!!!!!!!!!!!!!!! USE TDomPrepper INSTEAD, SO LIVE AND TRAINING DATA PREPROCESSING IS THE SAME FOR SURE
+class EEGTimeDomainDataset(Dataset):
 
     def __init__(self, streams_path, meta_path, cfg, epoch_type='task'):
         streams_data = h5py.File(streams_path, 'r')

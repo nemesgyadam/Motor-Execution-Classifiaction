@@ -13,7 +13,8 @@ import mne
 import pickle
 import torch
 import numpy as np
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset, Dataset, ConcatDataset
+import h5py
 from braindecode.models import *
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
@@ -24,10 +25,124 @@ from lightning.pytorch.callbacks import Callback
 import random
 from pprint import pprint
 from datetime import datetime
+from scipy.signal import resample
 import matplotlib.pyplot as plt
+import torchmetrics
+from typing import List
 
 import argparse
-from data_gen import *
+
+
+class EEGTimeDomainDataset(Dataset):
+
+    def __init__(self, streams_path, meta_path, cfg, epoch_type='task'):
+        streams_data = h5py.File(streams_path, 'r')
+
+        with open(meta_path, 'rb') as f:
+            meta_data = pickle.load(f)
+
+        crop_def = (-np.inf, np.inf)
+        crop_t = cfg['crop_t']
+        crop_t = (crop_def[0] if crop_t[0] is None else crop_t[0], crop_def[1] if crop_t[1] is None else crop_t[1])
+        times = streams_data.attrs[f'on_{epoch_type}_times'][:]
+        within_window = (crop_t[0] < times) & (times < crop_t[1])
+        on_task_events = streams_data[f'on_{epoch_type}_events'][:][:, 2]
+
+        eeg_info = meta_data['eeg_info']
+        task_event_ids = meta_data[f'{epoch_type}_event_ids']
+
+        event_id_to_cls = {task_event_ids[ev]: cls for ev, cls in cfg['events_to_cls'].items()}
+
+        # select task relevant epochs
+        epochs = streams_data[f'epochs_on_{epoch_type}'][:]
+        relevant_epochs = np.logical_or.reduce([on_task_events == task_event_ids[ev]
+                                                for ev in cfg['events_to_cls'].keys()])
+        epochs = epochs[relevant_epochs, ...]
+        events = on_task_events[relevant_epochs]
+
+        # pick channels
+        relevant_chans_i = [eeg_info['ch_names'].index(chan) for chan in cfg['eeg_chans']]
+        epochs = epochs[:, relevant_chans_i]
+
+        # TODO can't really test end-2-end
+        # prep = TDomPrepper(epochs.shape[-1], eeg_info['sfreq'], cfg['eeg_chans'], meta_data['bandpass_freq'],
+        #                    (50, 100), np.mean, meta_data['on_task_times'][[0, -1]], cfg['crop_t'],
+        #                    meta_data['task_baseline'], meta_data['filter_percentile'])
+
+        # load as X, y into braindecode
+        # mapper = np.vectorize(lambda x: event_id_to_cls[x])
+        # events_cls = mapper(events)
+        events_cls = list(map(lambda e: event_id_to_cls[e], events))
+
+        # prepare multi-hot
+        is_multi_label = any(map(lambda e: isinstance(e, list), cfg['events_to_cls'].values()))
+        if is_multi_label:
+            uniq_clss = np.unique(sum([[e] if not isinstance(e, list) else e
+                                       for e in cfg['events_to_cls'].values()], []))
+            def _to_multi_hot(e):
+                mh = np.zeros(len(uniq_clss))
+                e = [e] if not isinstance(e, list) else e
+                mh[e] = 1
+                return mh
+            events_cls = np.array(list(map(_to_multi_hot, events_cls)))
+
+        assert len(epochs) == len(events_cls)
+        epochs = epochs[..., within_window]
+        times = times[within_window]
+        # self.norm = Compose([ToTensor(), Normalize([.5] * epochs.shape[1], [.5] * epochs.shape[1])])
+
+        # resample time
+        self.sfreq = eeg_info['sfreq']
+        if cfg['resample'] != 1:
+            epochs, times = resample(epochs, int(cfg['resample'] * epochs.shape[-1]), t=times, axis=-1)
+            self.sfreq *= cfg['resample']
+
+        # standardize (per subject, per channel)  # TODO try across channel and across (training) subject
+        means = epochs.mean(axis=-1, keepdims=True)
+        stds = epochs.std(axis=-1, keepdims=True)
+        self.epochs = (epochs - means) / stds
+        self.events_cls = events_cls
+
+        # splitting info
+        self.session_idx = streams_data[f'on_{epoch_type}_session_idx'][relevant_epochs]
+        self.sessions = meta_data['session_ids']
+
+        streams_data.close()
+
+    def __getitem__(self, index):
+        return self.epochs[index], torch.as_tensor(self.events_cls[index], dtype=torch.int64)
+
+    def __len__(self):
+        return len(self.epochs)
+
+    def rnd_split_by_session(self, train_ratio=.8, train_session_idx=None, valid_session_idx=None):
+        if train_session_idx is None or valid_session_idx is None:
+            uniq_session_idx = np.unique(self.session_idx)
+            nvalid_session = int(len(uniq_session_idx) * (1 - train_ratio))
+            nvalid_session = max(1, nvalid_session)
+            ntrain_session = len(uniq_session_idx) - nvalid_session
+
+            rnd_session_idx = np.random.permutation(uniq_session_idx)
+            train_session_idx = rnd_session_idx[:ntrain_session]
+            valid_session_idx = rnd_session_idx[ntrain_session:]
+
+        # get epoch indexes
+        train_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in train_session_idx], axis=0)
+        train_epochs_idx = np.arange(self.epochs.shape[0])[train_epochs_idx]
+        valid_epochs_idx = np.logical_or.reduce([self.session_idx == i for i in valid_session_idx], axis=0)
+        valid_epochs_idx = np.arange(self.epochs.shape[0])[valid_epochs_idx]
+
+        return Subset(self, train_epochs_idx), Subset(self, valid_epochs_idx)
+
+
+def split_multi_subject_by_session(datasets: List[EEGTimeDomainDataset], train_ratio=.8):
+    train_ds, valid_ds = [], []
+    for ds in datasets:
+        tds, vds = ds.rnd_split_by_session(train_ratio)
+        train_ds.append(tds)
+        valid_ds.append(vds)
+
+    return ConcatDataset(train_ds), ConcatDataset(valid_ds)
 
 
 def parse_args() -> argparse.Namespace:
